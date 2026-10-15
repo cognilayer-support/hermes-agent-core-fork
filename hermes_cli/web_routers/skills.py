@@ -96,9 +96,10 @@ def _clear_skills_prompt_cache() -> None:
 @hub_router.post("/api/skills/hub/install")
 async def install_skill_hub(body: SkillInstallRequest, profile: Optional[str] = None):
     identifier = require(body.identifier, "identifier is required")
+    target_profile = body.profile or profile
     return spawn_profile_action(
-        body.profile or profile, ["skills", "install", identifier, "--yes"],
-        _hub_action_name("install", identifier), log_msg="Failed to spawn skills install",
+        target_profile, ["skills", "install", identifier, "--yes"],
+        _hub_action_name("install", identifier, target_profile), log_msg="Failed to spawn skills install",
         prefix="Failed to install skill")
 
 
@@ -293,37 +294,38 @@ async def scan_skill_hub(identifier: str = "", profile: Optional[str] = None):
 
         from hermes_cli.skills_hub import _scan_source_for_install
 
-        meta, bundle, matched_source = _resolve_hub_skill(ident, profile)
-        if not bundle:
-            return None
+        with _profile_scope(profile):
+            meta, bundle, matched_source = _resolve_hub_skill(ident, profile)
+            if not bundle:
+                return None
 
-        scan_source, scan_trust = _scan_source_for_install(bundle, meta, ident, matched_source)
+            scan_source, scan_trust = _scan_source_for_install(bundle, meta, ident, matched_source)
 
-        tier1 = None
-        q_path = quarantine_bundle(bundle)
-        try:
-            result = scan_skill(q_path, source=scan_source, trust_level=scan_trust)
-            # Advisory SkillEvaluator Tier 1 second opinion: optional binary,
-            # never blocks, errors degrade to no data (same as the CLI installer).
+            tier1 = None
+            q_path = quarantine_bundle(bundle)
             try:
-                from tools.skillevaluator_scan import run_tier1_scan, tier1_advisory_enabled
-                if tier1_advisory_enabled():
-                    t1 = run_tier1_scan(q_path)
-                    if t1.available:
-                        tier1 = {
-                            "passed": t1.passed,
-                            "incomplete_checks": t1.incomplete_checks,
-                            "findings": [
-                                {
-                                    "check": f.check, "validator": f.validator,
-                                    "severity": f.severity, "message": f.message,
-                                    "file": f.file, "line": f.line,
-                                    "secrets_class": f.is_secrets_class}
-                                for f in t1.findings]}
-            except Exception:
-                _log.debug("Tier 1 advisory scan skipped", exc_info=True)
-        finally:
-            _shutil.rmtree(q_path, ignore_errors=True)
+                result = scan_skill(q_path, source=scan_source, trust_level=scan_trust)
+                # Advisory SkillEvaluator Tier 1 second opinion: optional binary,
+                # never blocks, errors degrade to no data (same as the CLI installer).
+                try:
+                    from tools.skillevaluator_scan import run_tier1_scan, tier1_advisory_enabled
+                    if tier1_advisory_enabled():
+                        t1 = run_tier1_scan(q_path)
+                        if t1.available:
+                            tier1 = {
+                                "passed": t1.passed,
+                                "incomplete_checks": t1.incomplete_checks,
+                                "findings": [
+                                    {
+                                        "check": f.check, "validator": f.validator,
+                                        "severity": f.severity, "message": f.message,
+                                        "file": f.file, "line": f.line,
+                                        "secrets_class": f.is_secrets_class}
+                                    for f in t1.findings]}
+                except Exception:
+                    _log.debug("Tier 1 advisory scan skipped", exc_info=True)
+            finally:
+                _shutil.rmtree(q_path, ignore_errors=True)
 
         # `allowed` may be None ("ask") for agent-created/dangerous gates.
         allowed, reason = should_allow_install(result, force=False)
