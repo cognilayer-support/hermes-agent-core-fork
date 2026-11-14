@@ -106,9 +106,10 @@ async def install_skill_hub(body: SkillInstallRequest, profile: Optional[str] = 
 @hub_router.post("/api/skills/hub/uninstall")
 async def uninstall_skill_hub(body: SkillUninstallRequest, profile: Optional[str] = None):
     name = require(body.name, "name is required")
+    target_profile = body.profile or profile
     return spawn_profile_action(
-        body.profile or profile, ["skills", "uninstall", name, "--yes"],
-        _hub_action_name("uninstall", name), log_msg="Failed to spawn skills uninstall",
+        target_profile, ["skills", "uninstall", name, "--yes"],
+        _hub_action_name("uninstall", name, target_profile), log_msg="Failed to spawn skills uninstall",
         prefix="Failed to uninstall skill")
 
 
@@ -287,9 +288,7 @@ async def scan_skill_hub(identifier: str = "", profile: Optional[str] = None):
     ident = require(identifier, "identifier is required")
 
     def _run():
-        import shutil as _shutil
-
-        from tools.skills_hub_install import quarantine_bundle
+        from tools.skills_hub_install import discard_quarantine, quarantine_bundle
         from tools.skills_guard import scan_skill, should_allow_install
 
         from hermes_cli.skills_hub import _scan_source_for_install
@@ -325,7 +324,7 @@ async def scan_skill_hub(identifier: str = "", profile: Optional[str] = None):
                 except Exception:
                     _log.debug("Tier 1 advisory scan skipped", exc_info=True)
             finally:
-                _shutil.rmtree(q_path, ignore_errors=True)
+                discard_quarantine(q_path)
 
         # `allowed` may be None ("ask") for agent-created/dangerous gates.
         allowed, reason = should_allow_install(result, force=False)
