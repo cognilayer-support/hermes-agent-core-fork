@@ -129,7 +129,8 @@ def test_scan_error_still_removes_the_staging_dir(hub_dirs, monkeypatch):
     assert list((hub_dir / "quarantine").iterdir()) == []
 
 
-def test_failed_quarantine_write_leaves_no_partial_tree(hub_dirs, monkeypatch):
+@pytest.mark.parametrize("exc", [OSError("disk full"), KeyboardInterrupt()], ids=["write-error", "interrupt"])
+def test_failed_quarantine_write_leaves_no_partial_tree(hub_dirs, monkeypatch, exc):
     _skills_dir, hub_dir = hub_dirs
     bundle = SkillBundle(name="demo", files={"SKILL.md": "---\nname: demo\n---\n", "b.txt": "x"},
                          source="official", identifier="official/demo", trust_level="builtin")
@@ -137,10 +138,10 @@ def test_failed_quarantine_write_leaves_no_partial_tree(hub_dirs, monkeypatch):
 
     def write_then_fail(self, *a, **k):
         if self.name == "b.txt":
-            raise OSError("disk full")
+            raise exc
         return real_write(self, *a, **k)
 
     monkeypatch.setattr(type(hub_dir), "write_text", write_then_fail)
-    with pytest.raises(OSError, match="disk full"):
+    with pytest.raises(type(exc)):
         quarantine_bundle(bundle)
     assert list((hub_dir / "quarantine").iterdir()) == []
