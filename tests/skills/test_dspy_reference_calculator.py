@@ -56,6 +56,7 @@ def test_calculator_still_does_arithmetic(doc):
     "10 ** " + "1000000",                  # unbounded work
     "1 ** " + "1000000000",                # exponent budget, checked before computing
     "10 ** 99 " + "* 10 ** 99",            # magnitude budget
+    "-" * 300 + "1",                       # length budget (also bounds recursion)
 ])
 def test_calculator_rejects_non_arithmetic(doc, probe):
     assert _rejected(_calculate(doc), probe)
