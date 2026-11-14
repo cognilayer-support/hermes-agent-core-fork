@@ -394,7 +394,7 @@ def cmd_start(args: argparse.Namespace) -> int:
             bitwarden_config=bw_cfg,
         )
     except Exception as exc:
-        console.print(f"[red]✗ failed to start iron-proxy:[/red] {exc}")
+        console.print(f"[red]✗ failed to start iron-proxy:[/red] {console_safe(str(exc))}")
         return 1
     if not status.pid:
         console.print("[red]✗ iron-proxy did not come up cleanly[/red]")

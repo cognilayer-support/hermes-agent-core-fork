@@ -191,6 +191,30 @@ class TestEgressSetupFromBitwarden:
         assert "[green]Token accepted[/green]" in out
         assert "\x1b" not in out and "\x07" not in out
 
+    def test_start_bitwarden_refresh_error_text_escaped(self, monkeypatch, capsys):
+        """hermes egress start/restart with credential_source: bitwarden: the BWS refresh
+        error propagates out of start_proxy into cmd_start's failure line."""
+        from agent.proxy_sources import iron_proxy as ip
+        from agent.secret_sources import bitwarden as bw
+        from hermes_cli import proxy_cli
+
+        monkeypatch.setattr(
+            proxy_cli, "load_config",
+            lambda: {"proxy": {"enabled": True, "credential_source": "bitwarden"},
+                     "secrets": {"bitwarden": {"enabled": True, "project_id": "p1",
+                                               "access_token_env": "BWS_ACCESS_TOKEN"}}})
+        monkeypatch.setenv("BWS_ACCESS_TOKEN", "0.t")
+        monkeypatch.setattr(ip, "find_iron_proxy", lambda install_if_missing=True: Path("/bin/iron-proxy"))
+        (ip._proxy_state_dir() / "proxy.yaml").write_text("{}", encoding="utf-8")
+
+        def boom(**k):
+            raise RuntimeError("bws exited 1: [green]ok[/green] \x1b]8;;u\x07")
+        monkeypatch.setattr(bw, "fetch_bitwarden_secrets", boom)
+        assert proxy_cli.cmd_start(argparse.Namespace()) == 1
+        out = capsys.readouterr().out
+        assert "[green]ok[/green]" in out
+        assert "\x1b" not in out and "\x07" not in out
+
 class TestStatusAuthoredMarkupBoundary:
     """Only probe-derived lines get escaped; authored markup in the messages
     list (the '0.' prefix warning) must still render as markup."""
