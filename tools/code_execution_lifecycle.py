@@ -11,7 +11,11 @@ loop or try), import only modules from a small allowlist, touch no private/dunde
 or introspection attribute, and load no name it has not bound in an earlier statement apart from a
 set of plain builtins. The last rule matters because the session kernel persists: ``os``, ``subprocess`` or a
 ``def sh(cmd)`` helper from an earlier cell is still reachable by name. Anything else is scanned as
-before. This is accident prevention for the gateway SIGTERM-ing itself, not a security boundary.
+before. This is accident prevention for the gateway SIGTERM-ing itself, not a security boundary:
+like a command spliced at runtime, a cell written to get past it is not detected -- an earlier
+cell rebinding a plain builtin (``from os import system as print``), or a dynamic lookup reached
+through an allowlisted module (``string.Formatter().get_field``, ``inspect.getattr_static``,
+``enum.bltns.getattr``). Closing those gadget by gadget is not a goal.
 """
 
 from __future__ import annotations
@@ -145,7 +149,9 @@ def lifecycle_guard_rejection(code: str) -> Optional[str]:
         "gateway process. The gateway would kill this script before "
         "it could complete (SIGTERM propagates to child processes)."
         f"{trigger} Run the lifecycle command from a shell outside the gateway. "
-        "If the script only prints or writes that text as documentation, drop the "
-        "process/shell/dynamic-code calls (os, subprocess, exec, terminal, helpers "
-        "from earlier cells) so the cell is treated as inert data."
+        "If the script only prints or writes that text as documentation, write it as "
+        "straight-line top-level code (no def, lambda, class, loop, if, try or "
+        "comprehension) that imports only pure stdlib modules (json, pathlib, re, "
+        "textwrap, ...) and calls no process/shell/dynamic-code API (os, subprocess, "
+        "exec, terminal, helpers from earlier cells); it is then treated as inert data."
     )

@@ -45,6 +45,10 @@ def test_documentation_only_cell_is_not_refused(code):
     f'exec("import os; os.system(\'{_CMD}\')")',
     f'import pathlib\npathlib.os.system("{_CMD}")',
     f'print("{_CMD}"',  # unparsable -> scanned as before
+    f'import hermes_tools\nhermes_tools.terminal("{_CMD}")',  # only the import allowlist sees this
+    f'with sh("{_CMD}"):\n    pass',  # the with-item expression runs
+    f'with open("notes.md") as fh:\n    sh = sh\n    sh("{_CMD}")',  # with-body reads see earlier lines only
+    f'p = ().__class__.__base__.__subclasses__()\nprint("{_CMD}")',  # dunder walk to any loaded class
 ])
 def test_cell_that_can_reach_a_process_is_still_refused(code):
     assert _blocked(code) is not None
@@ -75,5 +79,9 @@ def test_scoped_or_conditional_bindings_never_count_as_inert(code):
     assert _blocked(code) is not None
 
 
-def test_parser_exhaustion_is_scanned_as_before():
-    assert _blocked("(" * 5000 + f'"{_CMD}"' + ")" * 5000) is not None
+@pytest.mark.parametrize("code", [
+    "(" * 5000 + f'"{_CMD}"' + ")" * 5000,  # SyntaxError: too many nested parentheses
+    "a" + ".b" * 200000 + f'\nprint("{_CMD}")',  # RecursionError during compilation
+])
+def test_parser_exhaustion_is_scanned_as_before(code):
+    assert _blocked(code) is not None
