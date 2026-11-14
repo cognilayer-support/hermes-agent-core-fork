@@ -64,16 +64,21 @@ def resolve_profile_home_for_source(runner, source) -> Path:
         return get_hermes_home()
 
 
-def completion_event_scope_or_refuse(runner, evt: dict, what: str):
-    """``runner._completion_event_scope(evt)``, or ``None`` when the event's profile is not served.
+async def completion_event_scope_or_refuse(runner, evt: dict, what: str):
+    """``runner._completion_event_scope(evt)`` already entered (``async with`` the result exits it),
+    or ``None`` when the event's profile is not served.
 
     Such an event is refused for good on this gateway (never retried, never run under the launch
     profile). Its durable ledger row, if any, lives in that profile's own store and replays when the
-    profile is served again."""
+    profile is served again. Entering here also covers scopes that resolve the profile on entry
+    (a raw api_server event's ``_served_api_server_event_scope``)."""
+    from contextlib import AsyncExitStack
     from gateway.profile_routing import ProfileRouteRejected
+    stack = AsyncExitStack()
     try:
-        return runner._completion_event_scope(evt)
+        await stack.enter_async_context(runner._completion_event_scope(evt))
     except ProfileRouteRejected as exc:
         logger.warning("Dropping %s for %s: profile %r is not served by this gateway",
                        what, evt.get("session_key") or evt.get("session_id") or "<unknown>", exc.profile)
         return None
+    return stack

@@ -708,7 +708,7 @@ class GatewayNotificationsMixin(GatewayUpdateNotificationsMixin, GatewayNotifica
                 # instead of re-attempting admission every 2 s (#140899).
                 completion_queue.put(evt)
                 continue
-            scope = completion_event_scope_or_refuse(self, evt, "watch notification")
+            scope = await completion_event_scope_or_refuse(self, evt, "watch notification")
             if scope is None:
                 continue  # only this event: the rest of the batch still delivers
             async with scope:
@@ -1255,7 +1255,7 @@ class GatewayNotificationsMixin(GatewayUpdateNotificationsMixin, GatewayNotifica
         True means adapter admission, not model execution; None means deduplicated or
         terminal. False remains retryable. Claims are settled together for every sibling.
         """
-        scope = completion_event_scope_or_refuse(self, evt, "completion notification")
+        scope = await completion_event_scope_or_refuse(self, evt, "completion notification")
         if scope is None:
             return None  # terminal: never retried
         async with scope:
@@ -1449,7 +1449,7 @@ class GatewayNotificationsMixin(GatewayUpdateNotificationsMixin, GatewayNotifica
         """Fan in policy-admitted process completions with compatible pinned owners."""
         # Filter each event before it can contaminate (or suppress) a foreground batch.
         # The shared queue may be drained outside the owning profile's runtime scope.
-        scope = completion_event_scope_or_refuse(self, evt, "process completion")
+        scope = await completion_event_scope_or_refuse(self, evt, "process completion")
         if scope is None:
             return None
         async with scope:
@@ -1506,7 +1506,7 @@ class GatewayNotificationsMixin(GatewayUpdateNotificationsMixin, GatewayNotifica
         their claims are acked only after adapter acceptance). True after acceptance, False to requeue
         the group, None when nothing is deliverable here (retry siblings requeued)."""
         # The group shares one session_key, hence one profile: scope the pre-checks and sibling claims too.
-        scope = completion_event_scope_or_refuse(self, group[0], "async delegation completions")
+        scope = await completion_event_scope_or_refuse(self, group[0], "async delegation completions")
         if scope is None:
             return None  # dropped from the queue, not requeued: no retry storm
         async with scope:
@@ -1835,13 +1835,13 @@ class GatewayNotificationsMixin(GatewayUpdateNotificationsMixin, GatewayNotifica
         """Run :meth:`_watch_process` inside the owning profile's scope, start to finish. A watcher starts
         in an empty context (live-armed from a tool thread, or recovered at startup), and the output it
         prepares runs that profile's own ``transform_terminal_output`` hooks before any delivery."""
-        scope = completion_event_scope_or_refuse(self, watcher, "process watcher")
-        if scope is None:
-            return  # refused for good: nothing will deliver, so a restart must not wait on it
         # A restart waits for these: the process's completion delivers a new turn (restart_when_idle).
         live = self.__dict__.setdefault("_live_process_watchers", set())
         live.add(watcher["session_id"])
         try:
+            scope = await completion_event_scope_or_refuse(self, watcher, "process watcher")
+            if scope is None:
+                return
             async with scope:
                 await self._watch_process(watcher)
         finally:

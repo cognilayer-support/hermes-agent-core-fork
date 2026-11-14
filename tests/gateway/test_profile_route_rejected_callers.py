@@ -113,3 +113,40 @@ async def test_process_watcher_for_unserved_profile_ends_cleanly(homes):
     runner._watch_process = AsyncMock()
     await runner._run_process_watcher({"session_key": "agent:ghost:telegram:dm:g", "session_id": "p1"})
     runner._watch_process.assert_not_awaited()
+    assert runner._live_process_watchers == set()  # a refused watcher never holds up restart_when_idle
+
+
+@pytest.mark.asyncio
+async def test_watch_drain_survives_a_scope_that_refuses_on_entry(homes, monkeypatch):
+    """A raw api_server event's scope resolves its profile on entry, after a thread hop; a profile
+    unserved in between must cost only that event, not the rest of the drained batch."""
+    import contextlib
+    import gateway.run as gateway_run
+    import tools.process_registry_notifications as notifications
+    from gateway.profile_routing import ProfileRouteRejected
+    runner = _bare_runner({})
+
+    @contextlib.asynccontextmanager
+    async def refuses_on_entry():
+        raise ProfileRouteRejected("gone", "gone")
+        yield  # pragma: no cover
+
+    runner._completion_event_scope = lambda evt: (
+        refuses_on_entry() if evt["session_key"] == "raw" else contextlib.nullcontext())
+    injected = []
+
+    async def inject(_text, evt):
+        injected.append(evt["session_key"])
+        return True
+
+    runner._inject_watch_notification = inject
+    monkeypatch.setattr(notifications, "should_surface_notification", lambda _evt: True)
+    monkeypatch.setattr(gateway_run, "_format_gateway_process_notification", lambda _evt: "x")
+    pending = queue.Queue()
+    for key in ("raw", "ok"):
+        pending.put({"type": "watch_match", "session_key": key})
+
+    await runner._drain_watch_notifications(pending)
+
+    assert injected == ["ok"]
+    assert pending.empty()
