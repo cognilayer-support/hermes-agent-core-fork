@@ -15,7 +15,7 @@ import tempfile
 import unicodedata
 
 from tools.approval_ansi_c import _is_shell_comment_start, expand_ansi_c_quotes
-from tools.approval_fetch_exec import DownloadThenRunMatcher
+from tools.approval_fetch_exec import DownloadThenRunMatcher, heredoc_scan_sources
 from tools.shell_heredoc import mask_heredoc_bodies_for_shell_scan
 
 logger = logging.getLogger("tools.approval")
@@ -1672,7 +1672,7 @@ def _deny_command_variants(command: str):
     """
     yield from _command_detection_variants(command)
     # Heredoc bodies are masked first, then ANSI-C expanded: `$'...'` inside a body is literal data.
-    pending = list(dict.fromkeys(expand_ansi_c_quotes(source) for source in _heredoc_scan_sources(command)))
+    pending = list(dict.fromkeys(expand_ansi_c_quotes(source) for source in heredoc_scan_sources(command, _SHELL_NAMES_RE)))
     seen = set()
     while pending:
         source = pending.pop()
@@ -1709,27 +1709,16 @@ def _deny_command_variants(command: str):
                 pending.append(payload)
 
 
-_HEREDOC_WRITE_THEN_RUN = DownloadThenRunMatcher(_SHELL_NAMES_RE, writer_re=re.compile(r"\bcat\b"))
-
-
-def _heredoc_scan_sources(command: str) -> tuple[str, ...]:
-    """Body-dropped copies, plus the raw command when a dropped body's file runs later in it."""
-    data_dropped = mask_heredoc_bodies_for_shell_scan(command, code_consumers=False)
-    raw = (command,) if data_dropped != command and _HEREDOC_WRITE_THEN_RUN.search(data_dropped) else ()
-    return tuple(dict.fromkeys((data_dropped, mask_heredoc_bodies_for_shell_scan(command, code_consumers=True), *raw)))
-
-
 def _command_detection_variants(command: str):
     """Variants of the command with provably inert heredoc bodies dropped (#140704).
 
     A quote in a body (`it's`) desynced every quote-aware pass and hid the command after the
-    heredoc; body lines projected as commands. `cat` bodies are data, so they are dropped outright.
-    python/osascript bodies are code: their dropped copy is scanned IN ADDITION, a union that can
-    only add detections. Bodies a shell runs (`bash <<EOF`, `cat <<EOF | sh`, `ssh host <<EOF`) and
-    unterminated or mis-parsed `<<` (`$((a<<b))`) are never dropped.
+    heredoc; body lines projected as commands. `cat` bodies are data (unless the string runs the
+    written file), python/osascript dropped copies are scanned IN ADDITION. Bodies a shell runs
+    (`bash <<EOF`, `cat <<EOF | sh`, `ssh host <<EOF`) and unterminated/mis-parsed `<<` stay.
     """
     seen: set[str] = set()
-    for source in _heredoc_scan_sources(command):
+    for source in heredoc_scan_sources(command, _SHELL_NAMES_RE):
         for variant in _single_command_detection_variants(source):
             if variant not in seen:
                 seen.add(variant)
