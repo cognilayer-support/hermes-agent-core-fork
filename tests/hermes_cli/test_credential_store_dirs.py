@@ -76,6 +76,16 @@ def _assert_refused_everywhere(home, monkeypatch, paths):
     assert leaks == []
 
 
+def test_legacy_layout_stores_are_refused(home, monkeypatch):
+    """A home that predates ``platforms/`` keeps its stores at the old paths (get_hermes_dir)."""
+    for legacy in ("pairing", "whatsapp/session", "matrix/store"):
+        (home / legacy).mkdir(parents=True)
+        (home / legacy / "seed").write_text("x", encoding="utf-8")
+    paths = _written_stores(home)
+    assert not any("platforms" in path.relative_to(home).parts for path in paths), paths
+    _assert_refused_everywhere(home, monkeypatch, paths)
+
+
 @pytest.mark.platforms("macos", "windows")
 def test_case_variants_of_the_stores_are_refused(home, monkeypatch):
     """Case-insensitive filesystems open ``PLATFORMS/PAIRING/`` and ``.OP.ENV`` for the real stores."""
