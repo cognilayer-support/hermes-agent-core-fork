@@ -26,13 +26,13 @@ from hermes_state import SessionDB
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 _HOLDER = """
-import sys, time
+import sys
 from pathlib import Path
 from gateway.runtime_ownership import ProfileOwnership
 ownership = ProfileOwnership()
 ownership.reserve([Path(sys.argv[1])])
 print('ready', flush=True)
-time.sleep(120)
+sys.stdin.read()  # held until the fixture closes stdin (or the test process dies)
 """
 
 
@@ -43,15 +43,15 @@ def hold_profile():
 
     def start(home):
         env = {**os.environ, "PYTHONPATH": os.pathsep.join(filter(None, [str(_REPO_ROOT), os.environ.get("PYTHONPATH")]))}
-        proc = subprocess.Popen([sys.executable, "-c", _HOLDER, str(home)], stdout=subprocess.PIPE,
-                                text=True, env=env, cwd=_REPO_ROOT)
+        proc = subprocess.Popen([sys.executable, "-c", _HOLDER, str(home)], stdin=subprocess.PIPE,
+                                stdout=subprocess.PIPE, text=True, env=env, cwd=_REPO_ROOT)
         procs.append(proc)
         assert proc.stdout.readline().strip() == "ready"
         return proc.pid
 
     yield start
     for proc in procs:
-        proc.kill()
+        proc.stdin.close()
         proc.wait(timeout=10)
 
 
@@ -97,6 +97,27 @@ def test_an_unpublished_holder_still_fences_the_bump(tmp_path, hold_profile):
         db.close()
 
 
+def test_a_record_naming_this_pid_in_another_pid_namespace_is_not_ours(tmp_path, hold_profile):
+    """Same pid number, other PID namespace (a containerised holder): the flock decides, not the pid."""
+    import hermes_state_runtime as rt
+    from gateway.status import _build_pid_record
+
+    db = SessionDB(db_path=tmp_path / "state.db")
+    try:
+        epoch = rt.begin_runtime_epoch(db, instance_id="owner")
+        hold_profile(tmp_path)
+        record = {**_build_pid_record(), "pidns": "another-namespace"}
+        (tmp_path / "gateway.lock").write_text(json.dumps(record), encoding="utf-8")
+
+        with pytest.raises(rt.RuntimeStoreError) as exc:
+            rt.begin_runtime_epoch(db, instance_id="stranger")
+        assert exc.value.reason == "ownership_conflict"
+        assert _epoch_of(db) == epoch
+    finally:
+        db.close()
+
+
+@pytest.mark.platforms("any")
 def test_the_owner_itself_may_bump_the_epoch(tmp_path):
     """The holder of the profile lock is the one taking the store over - it must be allowed."""
     import hermes_state_runtime as rt
