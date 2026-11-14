@@ -16,6 +16,18 @@ LEGACY_SECRET_CACHE_PATHS = (
 )
 # Credential stores for every guard that lists them.
 SECRET_CACHE_STORES = (*SECRET_CACHE_FILES, *LEGACY_SECRET_CACHE_PATHS)
+# Home subpaths the agent must not rewrite with generic file tools or destroy from the shell without a
+# prompt. Session transcripts (state.db, sessions/) are application-owned state whose rewrite can
+# falsify history and break resume/compression; mcp-tokens/, pairing/, vault/ (key + ciphertext side
+# by side), browser-profile/ (copied cookies / Login Data) and webapp/ (the Webapp's browser
+# credential and its grants to native apps) hold credential material. skills/ and memories/ are
+# deliberately NOT here: they are user-editable content, and write approval for them (memory/skills
+# ``write_approval``) is enforced by the memory/skill subsystem tools, not the generic write path
+# (#60440 tracks closing that gap for write_file/patch). Control files (auth.json,
+# config.yaml, webhook_subscriptions.json) are deliberately NOT here (#45947): read-denied, but the
+# user may ask to edit them.
+HERMES_PROTECTED_SUBPATHS = (
+    "state.db", "sessions", "mcp-tokens", "pairing", "vault", "browser-profile", "webapp")
 
 # The WhatsApp bridge log and its rotated generation, as path parts relative to a home: troubleshooting
 # output that records chat ids and the Signal library's console lines, never needed for a restore (#149860).
