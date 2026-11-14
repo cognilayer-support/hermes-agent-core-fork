@@ -162,3 +162,20 @@ def test_one_body_run_from_many_paths_is_charged_after_its_first_scan(tmp_path, 
     unsafe, refusal = lifecycle_guard.scan_gateway_lifecycle(command, cwd=str(tmp_path))
     assert unsafe is True
     assert refusal is not None and "budget" in refusal
+
+
+def test_joined_appends_are_charged_as_new_text(tmp_path, monkeypatch):
+    """Each body is a substring of the charged command, but the join of a path's appends is not:
+    N paths with distinct joins must not be tokenized outside the whole-walk budget (#78398)."""
+    from cron import lifecycle_guard
+
+    monkeypatch.setattr(lifecycle_guard, "_MAX_LIFECYCLE_SCAN_LINES", 800)
+    paths = [tmp_path / f"s{i}.sh" for i in range(5)]
+    command = "".join(
+        _write(path, "".join(f"echo {i}-{part}-{n}\n" for n in range(50)), ">>")
+        for i, path in enumerate(paths) for part in ("a", "b")
+    )
+    command += "\n".join(f"bash {path}" for path in paths)
+    unsafe, refusal = lifecycle_guard.scan_gateway_lifecycle(command, cwd=str(tmp_path))
+    assert unsafe is True
+    assert refusal is not None and "budget" in refusal

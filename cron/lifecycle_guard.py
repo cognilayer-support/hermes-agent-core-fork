@@ -1205,9 +1205,12 @@ def _contains_unsafe_gateway_action(
         # Each body is one possible file version (an overwrite replaces the last), and their
         # concatenation is the file `>>` appends build. Joined overwrites can form a masked
         # `cat <<'DOC'` heredoc around a command the file really runs, so never scan the join alone.
-        bodies = written.pop(_resolve_lenient(script_path), [])
-        versions = dict.fromkeys(filter(None, [*bodies, "".join(bodies)]))
-        if any(recurse(body, cwd, candidate_executed, charge=False) for body in versions):
+        # A body is a substring of charged text (charge_text frees its first scan only); the join
+        # is new text, so it is charged like any other.
+        bodies = list(dict.fromkeys(filter(None, written.pop(_resolve_lenient(script_path), []))))
+        if any(recurse(body, cwd, candidate_executed, charge=False) for body in bodies):
+            return True
+        if len(bodies) > 1 and recurse("".join(bodies), cwd, candidate_executed):
             return True
         # Do not touch a FileProvider path even to discover whether the file is hydrated.
         if _on_cloud_path(script_path):
