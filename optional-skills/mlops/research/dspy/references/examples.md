@@ -173,21 +173,18 @@ _BIN_OPS = {
 _UNARY_OPS = {ast.UAdd: operator.pos, ast.USub: operator.neg}
 _ALLOWED_NODES = (ast.Expression, ast.Constant, ast.BinOp, ast.UnaryOp,
                   *_BIN_OPS, *_UNARY_OPS)
-_MAX_CHARS = 256       # input length budget
-_MAX_DEPTH = 50        # operator nesting budget
+_MAX_CHARS = 256       # input length budget; also bounds _arith recursion
 _MAX_EXPONENT = 100    # |right operand| budget for **
 _MAX_ABS = 10 ** 100   # |literal / intermediate / result| budget
 
-def _arith(node, depth=0):
-    if depth > _MAX_DEPTH:
-        raise ValueError("expression nested too deeply")
+def _arith(node):
     if isinstance(node, ast.Constant):
         value = node.value  # type is checked below (rejects str, bool, complex)
     elif isinstance(node, ast.UnaryOp):
-        value = _UNARY_OPS[type(node.op)](_arith(node.operand, depth + 1))
+        value = _UNARY_OPS[type(node.op)](_arith(node.operand))
     else:  # ast.BinOp; every other node type was rejected before evaluation
-        left = _arith(node.left, depth + 1)
-        right = _arith(node.right, depth + 1)
+        left = _arith(node.left)
+        right = _arith(node.right)
         if isinstance(node.op, ast.Pow) and abs(right) > _MAX_EXPONENT:
             raise ValueError("exponent too large")
         value = _BIN_OPS[type(node.op)](left, right)

@@ -37,6 +37,7 @@ def test_calculator_still_does_arithmetic(doc):
     assert float(calculate("67000000 / 10")) == 6700000.0
     assert float(calculate("1905 - 1879")) == 26
     assert float(calculate("(2 + 3) * 4 - 2 ** 3")) == 12
+    assert float(calculate(" + ".join(["1"] * 60))) == 60  # flat sums nest one level per term
 
 
 @pytest.mark.parametrize("doc", ["examples.md", "modules.md"])
