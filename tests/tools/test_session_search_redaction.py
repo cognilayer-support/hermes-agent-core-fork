@@ -131,3 +131,20 @@ def test_text_starting_with_data_is_not_an_inline_data_url(tmp_path, content):
     hit = json.loads(session_search(query="quarterlyneedle", db=db))["results"][0]
     assert next(m for m in hit["messages"] if m.get("anchor"))["content"] == content
     assert ">>>quarterlyneedle<<<" in hit["snippet"]
+
+
+AIZA_KEY = "AIza" + "SyA1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6"
+AKIA_KEY = "AKIA" + "IOSFODNN7EXAMPLQ"
+
+
+# The preview crop (63 chars in SQL, 60 after shaping) can cut a fixed-length key below its pattern's length.
+@pytest.mark.parametrize("lead,pad,key", [("", 26, AIZA_KEY), ("", 40, AKIA_KEY), ("\n\n\t  ", 24, AIZA_KEY)])
+def test_browse_preview_drops_key_cut_by_the_crop(tmp_path, lead, pad, key):
+    db = SessionDB(tmp_path / "state.db")
+    db.create_session("s_cut", source="cli")
+    db.append_message("s_cut", role="user", content=f"{lead}{'x' * pad} {key} is the key")
+    db.create_session("s_dots", source="cli")
+    db.append_message("s_dots", role="user", content="wait...")
+    rows = {r["session_id"]: r for r in json.loads(session_search(db=db))["results"]}
+    assert key[:12] not in rows["s_cut"]["preview"]
+    assert rows["s_dots"]["preview"] == "wait..."

@@ -16,7 +16,7 @@ from datetime import datetime, timezone, UTC
 from typing import Any, Dict, List, Optional, Union
 
 from agent.redact import redact_derived_text
-from hermes_state_common import _BOUNDARY_END_REASONS
+from hermes_state_common import _BOUNDARY_END_REASONS, _PREVIEW_MAX_CHARS
 from hermes_time import safe_strftime
 
 # Hidden from browsing/searching — integrations (HERMES_SESSION_SOURCE=tool), delegate
@@ -618,6 +618,15 @@ def _read_scoped(db, sid: str, profile: Optional[str]) -> str:
                       "profile, pass profile=<name> (or the @session:<profile>/<id> link).", success=False)
 
 
+def _derived_preview(preview: Any) -> str:
+    """Strictly redacted browse preview. ``_shape_preview`` cut it at ``_PREVIEW_MAX_CHARS``, which can
+    leave a fixed-length key (``AKIA…``, ``AIza…``) too short for its pattern: drop the cut word first."""
+    text = "" if preview is None else str(preview)
+    if len(text) == _PREVIEW_MAX_CHARS + 3 and text.endswith("..."):
+        text = re.sub(r"\S*$", "", text[:-3]) + "..."
+    return redact_derived_text(text)
+
+
 def _list_recent_sessions(db, limit: int, current_session_id: str | None = None, link_profile: str | None = None) -> str:
     """Browse shape: metadata for the most recent sessions (no LLM, no FTS5)."""
     def _browse():
@@ -643,7 +652,7 @@ def _list_recent_sessions(db, limit: int, current_session_id: str | None = None,
             "title": redact_derived_text(s.get("title")) or None,
             **{k: s.get(k, "") for k in ("source", "started_at", "last_active")},
             "message_count": s.get("message_count", 0),
-            "preview": redact_derived_text(s.get("preview"))}
+            "preview": _derived_preview(s.get("preview"))}
             for s in [x for x in sessions if x.get("id", "") not in hidden][:limit]]
         return _ok(mode="browse", results=results, count=len(results), message=(
             f"Showing {len(results)} most recent sessions. Pass a query= to search, "
