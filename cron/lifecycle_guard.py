@@ -486,6 +486,7 @@ class _LifecycleScanBudget:
         "paths_remaining",
         "refusal",
         "remote_reads_remaining",
+        "scanned_bodies",
     )
 
     def __init__(self) -> None:
@@ -495,9 +496,15 @@ class _LifecycleScanBudget:
         self.paths_remaining = _MAX_LIFECYCLE_SCAN_PATHS
         self.remote_reads_remaining = _MAX_LIFECYCLE_SCAN_REMOTE_READS
         self.refusal: Optional[str] = None
+        self.scanned_bodies: set[str] = set()
 
-    def charge_text(self, text: str) -> bool:
-        """Charge *text* before tokenization; False when it does not fit."""
+    def charge_text(self, text: str, *, written_body: bool = False) -> bool:
+        """Charge *text* before tokenization; False when it does not fit. A *written_body* is a
+        substring of text already charged, so only its first scan is free: one ``tee`` body
+        written to many paths is charged again for every further path."""
+        if written_body and text not in self.scanned_bodies:
+            self.scanned_bodies.add(text)
+            return True
         # UTF-8 is >= one byte per code point, so the char count is a free lower bound.
         if len(text) > self.bytes_remaining:
             return False
@@ -612,9 +619,9 @@ def _split_logical_lines(text: str) -> list[str]:
     return lines
 
 
-def _shlex_tokens(line: str) -> list[str]:
+def _shlex_tokens(line: str, punctuation_chars: str = ";&|()") -> list[str]:
     """POSIX-tokenize one shell line, honoring quotes and `#` comments; raises ValueError."""
-    lexer = shlex.shlex(line, posix=True, punctuation_chars=";&|()")
+    lexer = shlex.shlex(line, posix=True, punctuation_chars=punctuation_chars)
     lexer.whitespace_split = True
     lexer.commenters = "#"
     return list(lexer)
@@ -957,25 +964,25 @@ def _iter_shell_command_payloads(command: str) -> Iterator[str]:
 
 def _heredoc_write_targets(unit: str) -> Iterator[str]:
     """Paths a ``cat``/``tee`` heredoc command line writes its body to (``cat > P <<'EOF'``,
-    ``cat <<'EOF' | tee -a P``)."""
+    ``cat <<'EOF' | tee -a P``). Redirect operators tokenize apart from words, so attached
+    spellings (``cat >P<<'EOF'``, ``cat <<'EOF'>P``) yield P too."""
     try:
-        tokens = _shlex_tokens(unit)
+        tokens = _shlex_tokens(unit, ";&|()<>")
     except ValueError:
         return
     for segment in _split_segments(tokens):
         index = _executed_command_index(segment)
         if index is None or _executable_name(segment[index]) not in {"cat", "tee"}:
             continue
-        expect_target = False
+        operator = None
         for token in segment[index + 1:]:
-            if expect_target:
-                yield token
-                expect_target = False
-            elif token.lstrip("0123456789") in {">", ">>", ">|"}:
-                expect_target = True
-            elif token.startswith((">", "1>")) and token.lstrip("1>|"):
-                yield token.lstrip("1>|")
-            elif _executable_name(segment[index]) == "tee" and not token.startswith(("-", "<")):
+            if operator is not None:
+                if operator in {">", ">>", ">|", "&>", "&>>"}:
+                    yield token
+                operator = None
+            elif set(token) <= set("<>|&"):
+                operator = token
+            elif _executable_name(segment[index]) == "tee" and not token.startswith("-"):
                 yield token
 
 
@@ -1158,9 +1165,9 @@ def _contains_unsafe_gateway_action(
     *written* maps paths to the heredoc bodies written to them anywhere in the walk so far. It is
     shared by every depth so a nested ``sh -c 'bash P'`` / ``systemd-run bash -c P`` payload still
     resolves P to the body its parent wrote. ``charge=False`` is only for such a body: it is a
-    substring of text already charged, and each body is popped so it is scanned at most once."""
+    substring of text already charged, so its first scan is free and any repeat is charged."""
     # Charge BEFORE _direct_lifecycle_scan: every scan in it tokenizes with shlex.
-    if charge and not budget.charge_text(command):
+    if not budget.charge_text(command, written_body=not charge):
         return _budget_exhausted(budget, "text", depth) if executed else False
     if _direct_lifecycle_scan(command):
         return True
@@ -1195,8 +1202,12 @@ def _contains_unsafe_gateway_action(
     # oversized/binary, budget) stay restricted to the executed view — a mere data mention must not
     # trip them. Executed candidates come first so a mention never starves a real script's budget.
     for script_path, candidate_executed in _walk_candidates(command, walk_command, cwd, executed):
-        written_bodies = written.pop(_resolve_lenient(script_path), None)
-        if written_bodies and recurse("\n".join(written_bodies), cwd, candidate_executed, charge=False):
+        # Each body is one possible file version (an overwrite replaces the last), and their
+        # concatenation is the file `>>` appends build. Joined overwrites can form a masked
+        # `cat <<'DOC'` heredoc around a command the file really runs, so never scan the join alone.
+        bodies = written.pop(_resolve_lenient(script_path), [])
+        versions = dict.fromkeys(filter(None, [*bodies, "".join(bodies)]))
+        if any(recurse(body, cwd, candidate_executed, charge=False) for body in versions):
             return True
         # Do not touch a FileProvider path even to discover whether the file is hydrated.
         if _on_cloud_path(script_path):

@@ -108,3 +108,57 @@ def test_large_write_then_run_is_not_charged_twice(tmp_path):
     script = tmp_path / "big.sh"
     body = "echo line\n" * 10_000
     assert guard(_write(script, body) + f"bash {script}", cwd=str(tmp_path)) is False
+
+
+@pytest.mark.parametrize(
+    ("opener", "run"),
+    [
+        ("cat > {script}<<'EOF'", "bash {script}"),
+        ("cat >{script}<<'EOF'", "bash {script}"),
+        ("cat <<'EOF'>{script}", "bash {script}"),
+        ("cat <<'EOF' &>{script}", "bash {script}"),
+        ("cat >1.sh <<'EOF'", "bash 1.sh"),
+    ],
+)
+def test_redirect_spellings_write_then_run_block(tmp_path, opener, run):
+    script = tmp_path / "gw.sh"
+    command = opener.format(script=script) + f"\n{BODY}EOF\n" + run.format(script=script)
+    assert guard(command, cwd=str(tmp_path)) is True
+
+
+def test_overwrites_are_scanned_as_separate_file_versions(tmp_path):
+    """Joined, these two overwrites form a masked ``cat <<'DOC'`` heredoc, but the file the last
+    write leaves runs the restart."""
+    script = tmp_path / "gw.sh"
+    command = _write(script, "cat <<'DOC'\n") + _write(script, "hermes gateway restart\nDOC\n")
+    assert guard(command + f"bash {script}", cwd=str(tmp_path)) is True
+
+
+def test_command_split_across_appends_is_scanned_as_the_appended_file(tmp_path):
+    """``>>`` appends build one file: a command split across two appended bodies still runs."""
+    script = tmp_path / "gw.sh"
+    command = _write(script, "hermes \\\n", ">>") + _write(script, "gateway restart\n", ">>")
+    assert guard(command + f"bash {script}", cwd=str(tmp_path)) is True
+
+
+def test_path_nothing_wrote_is_not_scanned_as_an_empty_body(tmp_path, monkeypatch):
+    """A run path with no heredoc body must not recurse into an empty "version", which at the depth
+    cap would fail closed on a script that does not exist."""
+    from cron import lifecycle_guard
+
+    monkeypatch.setattr(lifecycle_guard, "_MAX_REFERENCED_SCRIPT_DEPTH", 1)
+    assert guard(f"bash {tmp_path / 'missing.sh'}", cwd=str(tmp_path)) is False
+
+
+def test_one_body_run_from_many_paths_is_charged_after_its_first_scan(tmp_path, monkeypatch):
+    """Only a body's first scan is free: one ``tee`` body written to N paths and run from each must
+    not be rescanned N times outside the whole-walk budget (#78398)."""
+    from cron import lifecycle_guard
+
+    monkeypatch.setattr(lifecycle_guard, "_MAX_LIFECYCLE_SCAN_LINES", 300)
+    paths = " ".join(str(tmp_path / f"s{i}.sh") for i in range(5))
+    command = f"cat <<'EOF' | tee {paths} >/dev/null\n" + "echo line\n" * 100 + "EOF\n"
+    command += "\n".join(f"bash {path}" for path in paths.split())
+    unsafe, refusal = lifecycle_guard.scan_gateway_lifecycle(command, cwd=str(tmp_path))
+    assert unsafe is True
+    assert refusal is not None and "budget" in refusal
