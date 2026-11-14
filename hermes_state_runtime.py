@@ -5,7 +5,6 @@ SessionDB transaction owner, including its inode guard and SQLite retry policy.
 """
 import heapq
 import json
-import os
 import uuid
 from pathlib import Path
 from typing import NamedTuple, Optional

@@ -147,8 +147,8 @@ def _still_names(path: Path, fd: int) -> bool:
 
 
 # Homes whose gateway.lock a ProfileOwnership in THIS process holds right now, with the pid that
-# took it (a forked child inherits the dict, not the reservation). A flock is per open file
-# description, so at most one reservation per home can be live here at a time.
+# took it. A forked child answers False here, but it shares the flock's open file description and
+# the inherited process_ownership, so runtime_lock_held_elsewhere() still answers False for it too.
 _held_here: dict[Path, int] = {}
 _held_here_mutex = threading.Lock()
 
