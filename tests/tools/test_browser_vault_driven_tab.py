@@ -35,6 +35,7 @@ class _FakeCDP:
 
     def __init__(self) -> None:
         self.attached: list[str] = []
+        self.formless: set[str] = set()  # sessions whose form probe is falsy (form not rendered yet)
         self.url = ""
         self.loop = asyncio.new_event_loop()
         ready = threading.Event()
@@ -63,7 +64,7 @@ class _FakeCDP:
                 self.attached.append(params["targetId"])
                 result = {"sessionId": f"S-{params['targetId']}"}
             elif method == "Runtime.evaluate":
-                result = {"result": {"type": "boolean", "value": True}}
+                result = {"result": {"type": "boolean", "value": msg.get("sessionId") not in self.formless}}
             await ws.send(json.dumps({"id": msg["id"], "result": result}))
 
 
@@ -84,6 +85,15 @@ def test_fill_focuses_the_tab_browser_exec_drives_not_the_first_on_the_origin(su
     out = sup.focus_page(_ORIGIN, accept="!!document.querySelector('input[type=password]')")
     assert out["ok"] is True
     assert cdp.attached == ["T-own"]  # the stale and the other session's tab are never attached
+
+
+@pytest.mark.parametrize("origin", [_ORIGIN, ""])  # "" = a fill that names no site (save_login)
+def test_driven_tab_whose_form_has_not_rendered_is_still_the_only_candidate(supervisor, origin):
+    sup, cdp = supervisor
+    cdp.formless.add("S-T-own")
+    sup.set_driven_target("T-own")
+    assert sup.focus_page(origin, accept="!!document.querySelector('input[type=password]')")["ok"] is True
+    assert cdp.attached == ["T-own"]  # no fall-through to a same-origin tab whose form did render
 
 
 def test_driven_tab_elsewhere_falls_back_to_the_origin_walk(supervisor):
@@ -157,3 +167,46 @@ def test_browser_exec_records_its_daemons_tab_on_the_vault_supervisor(tmp_path, 
     result = json.loads(bu_cli.browser_exec("print(1)", task_id="t"))
     assert result["success"] is True, result
     assert recorded == ["T-own"]
+
+
+@pytest.mark.platforms("linux", "macos")  # the fake CLI is a shell script
+def test_a_call_the_bot_desktop_fence_refuses_leaves_the_driven_tab_alone(tmp_path, monkeypatch):
+    import stat
+
+    import tools.browser_use_cli as bu_cli
+    from tools import browser_session as bs
+    from tools import browser_supervisor
+
+    recorded: list = []
+
+    class _Sup:
+        def set_driven_target(self, target_id):
+            recorded.append(target_id)
+
+    class _Registry:
+        def get_or_start(self, task_id, cdp_url, **kw):
+            return _Sup()
+
+        def get(self, task_id):
+            return _Sup()
+
+    route = bu_cli._route_exec_current
+
+    def bot_desktop_route(env, *a):
+        env, err, sidecar, generation = route(env, *a)
+        env[bu_cli._BOT_DESKTOP_BROWSER_SENTINEL] = "local"
+        return env, err, sidecar, generation
+
+    monkeypatch.setattr(browser_supervisor, "SUPERVISOR_REGISTRY", _Registry())
+    monkeypatch.setattr(bs, "get_session_info",
+                        lambda key: {"cdp_url": "ws://127.0.0.1:47000/devtools/browser/x", "features": {"local": True}})
+    monkeypatch.setattr(bs, "run_fenced", lambda info, fn: {"success": False, "code": "human_has_control", "error": "x"})
+    monkeypatch.setattr(bu_cli, "_route_exec_current", bot_desktop_route)
+    monkeypatch.setattr(bu_cli, "harness_current_target", lambda env: "T-sidecar")
+    cli = tmp_path / "browser-use"
+    cli.write_text("#!/bin/sh\ncat > /dev/null\necho ok\n", encoding="utf-8")
+    cli.chmod(cli.stat().st_mode | stat.S_IXUSR)
+    monkeypatch.setattr(bu_cli, "_find_cli", lambda: [str(cli)])
+
+    assert json.loads(bu_cli.browser_exec("print(1)", task_id="t"))["code"] == "human_has_control"
+    assert recorded == []  # the refused call never ran, so the supervisor keeps the tab it had

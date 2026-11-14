@@ -877,6 +877,7 @@ def browser_exec(code: str, session: str = "", timeout_s: int = _DEFAULT_TIMEOUT
             return {"error_result": tool_error(f"Failed to launch browser-use CLI: {e}")}
         finally:
             owning.cancel(wait=5)  # an in-flight check finishes before the post-call one runs
+            _record_driven_tab(env, task_id)  # only a call that ran: the supervisor is this call's browser's
 
     if bot_desktop_browser:
         from tools.browser_session import run_fenced
@@ -885,7 +886,6 @@ def browser_exec(code: str, session: str = "", timeout_s: int = _DEFAULT_TIMEOUT
         dispatched = dispatch()
     _reload_if_republished(env, generation)
     _own_harness_daemon(env)
-    _record_driven_tab(env, task_id)
     if "proc" not in dispatched:
         if "error_result" in dispatched:
             return dispatched["error_result"]
