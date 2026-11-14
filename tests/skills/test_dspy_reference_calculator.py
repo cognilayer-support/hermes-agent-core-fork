@@ -3,6 +3,7 @@
 Readers copy these snippets into real agents, so the documented tool is executed
 here (without DSPy) and driven with arithmetic plus harmless non-arithmetic probes.
 """
+import ast
 from pathlib import Path
 
 import pytest
@@ -14,10 +15,17 @@ def _calculate(doc):
     text = (REFS / doc).read_text(encoding="utf-8")
     block = next(chunk for chunk in text.split("```python\n")[1:]
                  if "def calculate(" in chunk.split("\n```")[0]).split("\n```")[0]
-    tools = "\n".join(
-        line for line in block[:block.index("# Create ")].splitlines()
-        if not line.startswith("from dspy")
-    )
+    # Keep only the tool definitions: stdlib imports, module-level ``_CONSTANT``
+    # assignments and functions. Selecting by statement type (not by a prose
+    # comment) keeps the test independent of the surrounding DSPy agent code.
+    tools = ast.Module(body=[
+        node for node in ast.parse(block).body
+        if isinstance(node, ast.FunctionDef)
+        or (isinstance(node, ast.Import)
+            and not any(a.name.split(".")[0] == "dspy" for a in node.names))
+        or (isinstance(node, ast.Assign)
+            and all(isinstance(t, ast.Name) and t.id.startswith("_") for t in node.targets))
+    ], type_ignores=[])
     namespace = {}
     exec(compile(tools, str(REFS / doc), "exec"), namespace)
     return namespace["calculate"]
@@ -46,6 +54,8 @@ def test_calculator_still_does_arithmetic(doc):
     "[0] " + "* 3",                        # container construction
     "len" + "('abc')",                     # builtin call
     "10 ** " + "1000000",                  # unbounded work
+    "1 ** " + "1000000000",                # exponent budget, checked before computing
+    "10 ** 99 " + "* 10 ** 99",            # magnitude budget
 ])
 def test_calculator_rejects_non_arithmetic(doc, probe):
     assert _rejected(_calculate(doc), probe)
