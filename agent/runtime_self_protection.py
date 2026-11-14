@@ -359,9 +359,14 @@ def command_deletes_runtime(command: str) -> Optional[str]:
         joiner = parts[index + 1] if index + 1 < len(parts) else ""
         raw = _split_words(segment)
         words = _strip_prefixes(raw)
-        if not words or words == ["\\"]:
+        if not raw or raw == ["\\"]:
             # After `|` a newline or `\` still leaves the next command in the pipeline.
             walk.prev_joiner = "|" if walk.prev_joiner == "|" else joiner
+            continue
+        if not words:
+            # A bare `FOO=x` (or `X=$(mkdir d)`) still runs: a `||` after it skips the next cd.
+            walk.trusted = False
+            walk.step(walk.cwds, False, joiner)
             continue
         if _is_directory_change(raw) and "|" not in (walk.prev_joiner, joiner):
             change = _parse_directory_change(raw, segment=segment, home_known=home_known)
@@ -429,8 +434,10 @@ class _ShellWalk:
             return _cap(self.cwds + moved + ("",)), False
         if self.trusted:
             # Nothing ran yet that could create a directory, so a cd into a missing
-            # one fails and leaves the shell where it was (already in ``list_cwds``).
-            reachable = tuple(t for t in moved if not t or _enterable(t))
+            # one fails and leaves the shell where it was (already in ``list_cwds``). When
+            # none is enterable from here, the shell may still be elsewhere (its cwd is not
+            # the process cwd, or `cd -L` resolves `..` before the lookup): keep main's reading.
+            reachable = tuple(t for t in moved if not t or _enterable(t)) or ("",)
         else:
             reachable = moved
         if self.list_has_or or self.commented:  # `true || cd X && rm ...` skips the cd and still runs rm

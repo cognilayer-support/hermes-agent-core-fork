@@ -276,7 +276,8 @@ def test_a_cd_that_may_not_move_the_shell_keeps_the_old_directory(fake_runtime, 
     assert rsp.command_deletes_runtime(f"cd {tmp_path / 'missing'}; rm -rf venv") is not None
     # A cd that certainly moved the shell elsewhere does clear the relative target.
     assert rsp.command_deletes_runtime(f"cd {elsewhere}; rm -rf venv") is None
-    assert rsp.command_deletes_runtime(f"cd {tmp_path / 'missing'} && rm -rf venv") is None
+    # A cd that fails here may succeed in the shell's own cwd, so this keeps main's reading.
+    assert rsp.command_deletes_runtime(f"cd {tmp_path / 'missing'} && rm -rf venv") is not None
 
 
 def test_a_failed_and_chain_does_not_carry_its_cd_past_the_list(fake_runtime, tmp_path, monkeypatch):
@@ -353,3 +354,30 @@ def test_many_cds_into_missing_dirs_stay_linear(fake_runtime, tmp_path, monkeypa
     assert rsp.command_deletes_runtime(f"{cds}; rm -rf venv") is not None
     assert rsp.command_deletes_runtime(cds.replace("; ", "\n") + "\nrm -rf zz") is None
     assert time.monotonic() - began < 2
+
+
+def test_a_cd_the_walk_thinks_fails_still_checks_an_absolute_target(fake_runtime, tmp_path, monkeypatch):
+    # The terminal session's cwd is not the process cwd, so `frontend` can exist where the
+    # shell runs even though it is missing here: the delete after `&&` still runs.
+    monkeypatch.chdir(tmp_path)
+    venv = fake_runtime["venv"]
+    for move in ("cd frontend", "pushd frontend"):
+        assert rsp.command_deletes_runtime(f"{move} && rm -rf {venv}") is not None, move
+        assert rsp.command_deletes_runtime(f"{move} && find {venv} -delete") is not None, move
+    # `cd -L` resolves `..` before the lookup: link/../safe is tmp_path/safe for bash.
+    (tmp_path / "safe").mkdir()
+    (tmp_path / "elsewhere" / "child").mkdir(parents=True)
+    (tmp_path / "link").symlink_to(tmp_path / "elsewhere" / "child")
+    assert rsp.command_deletes_runtime(f"cd -L {tmp_path / 'link' / '..' / 'safe'} && rm -rf {venv}") is not None
+
+
+def test_a_bare_assignment_keeps_the_or_that_follows_it(fake_runtime, tmp_path, monkeypatch):
+    # `FOO=x` succeeds, so `|| cd ..` never runs and the delete reads from the install's parent.
+    install = Path(fake_runtime["venv"]).parent
+    work = tmp_path / "work"
+    work.mkdir()
+    monkeypatch.chdir(work)
+    for assign in ("FOO=x", f"HOME={install}"):
+        for tail in (" ; rm -rf ../hermes-agent/venv", " && rm -rf ../hermes-agent/venv", "\nrm -rf ../hermes-agent/venv"):
+            command = f"{assign} || cd ..{tail}"
+            assert rsp.command_deletes_runtime(command) is not None, command
