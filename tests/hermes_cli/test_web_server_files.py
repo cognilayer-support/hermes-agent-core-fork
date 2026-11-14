@@ -155,6 +155,21 @@ def test_write_text_does_not_reuse_a_precreated_staging_name(forced_files_client
     assert planted.read_text(encoding="utf-8") == "planted"
 
 
+@pytest.mark.platforms("posix")
+def test_write_text_keeps_the_file_mode(forced_files_client):
+    """The staged temp starts at 0600; an existing file keeps its own bits across the replace."""
+    import stat
+
+    client, root = forced_files_client
+    target = _seed_file(client, root)
+    target.chmod(0o751)
+
+    response = client.post("/api/fs/write-text", json={"path": str(target), "content": "new"})
+
+    assert response.status_code == 200, response.text
+    assert stat.S_IMODE(target.stat().st_mode) == 0o751
+
+
 
 
 @pytest.mark.parametrize("client_fixture", ["local_files_client", "forced_files_client"])
