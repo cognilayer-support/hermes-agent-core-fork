@@ -72,9 +72,17 @@ def test_install_from_quarantine_leaves_no_staging_dir(hub_dirs):
 
 def test_same_profile_install_queues_behind_the_running_one(hub_dirs, monkeypatch):
     """Profile create spawns one install per hub skill at once: each must wait its turn, not fail."""
+    import tools.skills_hub_install as hub_install
+
     calls: list = []
     monkeypatch.setattr(cli_hub, "_install_skill", lambda *a, **k: calls.append(a) or (None, None, True))
-    held, release = threading.Event(), threading.Event()
+    held, release, queued_at_lock = threading.Event(), threading.Event(), threading.Event()
+    real_lock = hub_install.hub_install_lock
+
+    def lock_seen_by_queued():
+        if threading.current_thread() is queued:
+            queued_at_lock.set()
+        return real_lock()
 
     def other_install():
         with hub_install_lock():
@@ -87,8 +95,10 @@ def test_same_profile_install_queues_behind_the_running_one(hub_dirs, monkeypatc
     queued = threading.Thread(target=lambda: results.append(cli_hub.do_install("official/demo", skip_confirm=True)))
     try:
         assert held.wait(10)
+        monkeypatch.setattr(hub_install, "hub_install_lock", lock_seen_by_queued)
         queued.start()
-        queued.join(1.5)
+        assert queued_at_lock.wait(10)  # reached the lock, so the window below exercises it
+        queued.join(2.0)
         assert queued.is_alive() and calls == []  # waiting on the lock, not installing alongside
         release.set()
         queued.join(10)
@@ -116,4 +126,21 @@ def test_scan_error_still_removes_the_staging_dir(hub_dirs, monkeypatch):
 
     with pytest.raises(KeyboardInterrupt):
         cli_hub.do_install("official/demo", skip_confirm=True)
+    assert list((hub_dir / "quarantine").iterdir()) == []
+
+
+def test_failed_quarantine_write_leaves_no_partial_tree(hub_dirs, monkeypatch):
+    _skills_dir, hub_dir = hub_dirs
+    bundle = SkillBundle(name="demo", files={"SKILL.md": "---\nname: demo\n---\n", "b.txt": "x"},
+                         source="official", identifier="official/demo", trust_level="builtin")
+    real_write = type(hub_dir).write_text
+
+    def write_then_fail(self, *a, **k):
+        if self.name == "b.txt":
+            raise OSError("disk full")
+        return real_write(self, *a, **k)
+
+    monkeypatch.setattr(type(hub_dir), "write_text", write_then_fail)
+    with pytest.raises(OSError, match="disk full"):
+        quarantine_bundle(bundle)
     assert list((hub_dir / "quarantine").iterdir()) == []

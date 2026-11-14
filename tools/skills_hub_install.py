@@ -72,17 +72,23 @@ def quarantine_bundle(bundle: SkillBundle) -> Path:
         raise ValueError(f"Unsafe quarantine directory: {quarantine_dir}")
     # Per-request staging dir so concurrent installs/scans of one name never share a tree; the
     # bundle keeps its own name inside it because the scanner reports ``skill_path.name``.
-    dest = Path(tempfile.mkdtemp(prefix=f"{skill_name}-", dir=quarantine_dir)) / skill_name
-    dest.mkdir()
-    for rel_path, file_content in validated_files:
-        file_dest = dest.joinpath(*rel_path.split("/"))
-        file_dest.parent.mkdir(parents=True, exist_ok=True)
-        if isinstance(file_content, bytes):
-            file_dest.write_bytes(file_content)
-        else:
-            # newline="" keeps the bundle's LF bytes verbatim; the default None mode would
-            # translate to os.linesep on Windows and desync content_hash from bundle_content_hash.
-            file_dest.write_text(file_content, encoding="utf-8", newline="")
+    staging = Path(tempfile.mkdtemp(prefix=f"{skill_name}-", dir=quarantine_dir))
+    dest = staging / skill_name
+    try:
+        dest.mkdir()
+        for rel_path, file_content in validated_files:
+            file_dest = dest.joinpath(*rel_path.split("/"))
+            file_dest.parent.mkdir(parents=True, exist_ok=True)
+            if isinstance(file_content, bytes):
+                file_dest.write_bytes(file_content)
+            else:
+                # newline="" keeps the bundle's LF bytes verbatim; the default None mode would
+                # translate to os.linesep on Windows and desync content_hash from bundle_content_hash.
+                file_dest.write_text(file_content, encoding="utf-8", newline="")
+    except BaseException:
+        # Callers only clean up a returned path: a failed or interrupted write must not strand a partial tree.
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
     return dest
 
 
@@ -95,21 +101,21 @@ def discard_quarantine(q_path: Path) -> None:
 
 _INSTALL_LOCK_HOLDER = threading.local()
 # Same-profile installs queue: profile create spawns one install per hub skill at once, and two
-# quick Desktop Install clicks must both land. Long enough to cover one fetch + scan + move.
+# quick Desktop Install clicks must both land. One budget covers the whole wait, queued installs included.
 _INSTALL_LOCK_TIMEOUT_S = 600.0
 
 
 def hub_install_lock():
     """One profile's Skills Hub install lock (fetch through lock.json persistence), so a CLI and a
-    dashboard install cannot interleave their target rmtree/move. Waits for the running install;
-    raises ``TimeoutError`` only when one holds it past ``_INSTALL_LOCK_TIMEOUT_S``."""
+    dashboard install cannot interleave their target rmtree/move. Waits behind the running and queued
+    installs; raises ``TimeoutError`` once this waiter has waited ``_INSTALL_LOCK_TIMEOUT_S`` in total."""
     from hermes_cli.auth import _file_lock
     from tools.skills_hub import _hub_dir, ensure_hub_dirs
 
     ensure_hub_dirs()
     return _file_lock(_hub_dir() / "install.lock", _INSTALL_LOCK_HOLDER, _INSTALL_LOCK_TIMEOUT_S,
-                      f"Another Skills Hub install for this profile held the install lock for over "
-                      f"{int(_INSTALL_LOCK_TIMEOUT_S // 60)} minutes; try again once it finishes")
+                      f"Waited over {int(_INSTALL_LOCK_TIMEOUT_S // 60)} minutes for other Skills Hub installs in this "
+                      f"profile (one may be waiting at its install prompt); try again once they finish")
 
 
 def _category_skill_dirs(directory: Path) -> list[str]:
