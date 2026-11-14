@@ -11,7 +11,7 @@ custom HERMES_HOME under the user home reproduces the same gap on any OS.
 
 import pytest
 
-from tools import approval_detection
+from tools import approval_home_fold
 from tools.approval import detect_dangerous_command
 
 _PROFILE = r"C:\Users\tester"
@@ -76,8 +76,8 @@ class TestPathBelowCaseFold:
 
     @pytest.mark.parametrize(("family", "expected"), [("win32", "AppData/Local/hermes"), ("linux", None)])
     def test_case_fold_follows_the_host_os_family(self, monkeypatch, family, expected):
-        monkeypatch.setattr(approval_detection.facts, "os_family", lambda: family)
-        assert approval_detection._path_below(r"c:\users\tester", r"C:\Users\tester\AppData\Local\hermes") == expected
+        monkeypatch.setattr(approval_home_fold.facts, "os_family", lambda: family)
+        assert approval_home_fold._path_below(r"c:\users\tester", r"C:\Users\tester\AppData\Local\hermes") == expected
 
 
 class TestUnrelatedPathsStaySafe:
