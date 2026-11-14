@@ -6,7 +6,6 @@ form argv takes, the spawn log line is masked.
 """
 from __future__ import annotations
 
-import os
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -97,7 +96,7 @@ def test_mask_argv_secrets_covers_repeats_and_trailing_flag():
     assert supervisor._mask_argv_secrets(untouched) == untouched
 
 
-@pytest.mark.skipif(os.name != "posix", reason="permission bits are POSIX")
+@pytest.mark.platforms("posix")  # permission bits are POSIX
 def test_persisted_api_key_is_owner_only(tmp_path, monkeypatch):
     monkeypatch.setattr(supervisor, "runtimes_root", lambda: tmp_path / "runtime")
     supervisor.api_key_path().unlink(missing_ok=True)
@@ -105,7 +104,7 @@ def test_persisted_api_key_is_owner_only(tmp_path, monkeypatch):
     assert supervisor.api_key_path().stat().st_mode & 0o777 == 0o600
 
 
-@pytest.mark.skipif(os.name != "posix", reason="permission bits are POSIX")
+@pytest.mark.platforms("posix")  # permission bits are POSIX
 def test_existing_world_readable_api_key_is_tightened(tmp_path, monkeypatch):
     """A key persisted by an older build kept its umask mode; reuse must not leave it readable."""
     monkeypatch.setattr(supervisor, "runtimes_root", lambda: tmp_path / "runtime")
@@ -155,3 +154,16 @@ def test_spawn_uses_key_file_with_a_single_trailing_newline(tmp_path, monkeypatc
         assert "--api-key-file" in commands[0]
     finally:
         sup.stop()
+
+
+def test_spawn_uses_argv_when_the_key_file_is_missing(tmp_path, monkeypatch):
+    """Persistence failed: there is no file to point llama-server at."""
+    sup, commands = _make_supervisor(tmp_path, monkeypatch, "--api-key-file FNAME")
+    supervisor.api_key_path().unlink()
+    try:
+        sup._spawn()
+        assert "--api-key-file" not in commands[0]
+        assert commands[0][commands[0].index("--api-key") + 1] == sup.api_key
+    finally:
+        sup.stop()
+

@@ -97,13 +97,10 @@ def _stable_api_key() -> str:
             return existing
     key = secrets.token_urlsafe(24)
     try:
-        key_path.parent.mkdir(parents=True, exist_ok=True)
-        # Created 0600 up front: a write-then-chmod leaves a umask-readable window.
-        fd = os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(key)
-        with suppress(OSError):
-            os.chmod(key_path, 0o600)
+        from utils import atomic_write_text
+
+        # mkstemp creates the temp file 0600, so the key is never readable at the process umask.
+        atomic_write_text(key_path, key, tmp_prefix=f".{key_path.name}_", mode=0o600)
     except OSError as exc:
         logger.warning("could not persist api key (%s); sessions will need "
                        "a re-pick after restart", exc)
