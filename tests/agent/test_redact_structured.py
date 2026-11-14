@@ -192,3 +192,24 @@ def test_export_assignment_in_list_item_keeps_siblings():
     assert out["commands_run"][1] == "ls"
     assert "a" * 30 not in json.dumps(out)
     assert _settled(out)
+
+
+@pytest.mark.parametrize(
+    "secret_text",
+    [
+        "curl -H 'Authorization: Bearer " + "abcdef0123456789abcdef" + "' https://api.example.com",
+        "mysql --password=" + "Zq8xR2vT9pL4mN7kQwE" + " -h db",
+        "TOKEN=" + "6f1d2a9c8b3e4f5a6d7c8b9a0e1f2d3c",
+        "db.password=" + "hunter2verylongpassword",
+    ],
+)
+def test_secret_whose_first_mask_is_masked_again_keeps_siblings(secret_text):
+    # One redaction pass leaves a head/tail mask another rule masks on the next pass;
+    # the leaf pass must reach that fixed point itself, or _settled fails and the hard
+    # pass erases every sibling.
+    out = redact_structured({"cmd": secret_text, "argv": [secret_text], "summary": "keep"})
+
+    assert out["summary"] == "keep"
+    assert out["cmd"] != secret_text
+    assert out["argv"][0] != secret_text
+    assert _settled(out)

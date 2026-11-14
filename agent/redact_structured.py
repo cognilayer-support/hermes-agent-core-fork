@@ -60,7 +60,13 @@ def _redact_leaf(value: str, key: Any) -> str:
     # ensure_ascii=False matches _settled: a \uXXXX escape ending in a letter
     # would hide a token glued to non-ASCII text from the leaf pass.
     prefix = "" if key is None else json.dumps(key, ensure_ascii=False) + ": "
-    redacted = _redact(prefix + json.dumps(value, ensure_ascii=False))
+    redacted = prefix + json.dumps(value, ensure_ascii=False)
+    # One pass is not always a fixed point: a head/tail mask (sk-abc...wxyz) can be
+    # masked again by another rule, and _settled checks with one more pass.
+    for _ in range(4):
+        leaf, redacted = redacted, _redact(redacted)
+        if redacted == leaf:
+            break
     if not redacted.startswith(prefix):
         return _MASK
 
