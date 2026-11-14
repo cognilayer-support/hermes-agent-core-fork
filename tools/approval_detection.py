@@ -14,6 +14,7 @@ import shlex
 import tempfile
 import unicodedata
 
+from hermes_platform.host import facts
 from tools.approval_ansi_c import _is_shell_comment_start, expand_ansi_c_quotes
 
 logger = logging.getLogger("tools.approval")
@@ -858,7 +859,7 @@ def _path_below(root: str, path: str) -> str | None:
     if not root_parts or len(path_parts) <= len(root_parts):
         return None
     head, wanted = path_parts[:len(root_parts)], root_parts
-    if os.name == "nt":
+    if facts.os_family() == "win32":
         head, wanted = [p.lower() for p in head], [p.lower() for p in wanted]
     if head != wanted:
         return None

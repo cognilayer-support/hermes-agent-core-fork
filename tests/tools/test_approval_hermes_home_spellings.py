@@ -11,6 +11,7 @@ custom HERMES_HOME under the user home reproduces the same gap on any OS.
 
 import pytest
 
+from tools import approval_detection
 from tools.approval import detect_dangerous_command
 
 _PROFILE = r"C:\Users\tester"
@@ -61,6 +62,22 @@ class TestSpellingsOfTheHermesHome:
         monkeypatch.setenv("HERMES_HOME", "/home/tester/hermes-data")
         assert _is_dangerous("sed -i s/a/b/ ~/hermes-data/config.yaml") is True
         assert _is_dangerous("sed -i s/a/b/ $HOME/hermes-data/config.yaml") is True
+
+    @pytest.mark.platforms("windows")
+    def test_a_home_spelled_in_another_case_still_folds_on_windows(self, monkeypatch):
+        monkeypatch.setenv("HOME", r"c:\users\tester")
+        monkeypatch.setenv("HERMES_HOME", r"C:\Users\tester\AppData\Local\hermes")
+        assert _is_dangerous("sed -i s/a/b/ ~/AppData/Local/hermes/config.yaml") is True
+
+
+class TestPathBelowCaseFold:
+    """``_path_below`` folds case only on a Windows host, so a HOME and HERMES_HOME that differ
+    only in case still nest there. Runs on every lane by stubbing the host fact."""
+
+    @pytest.mark.parametrize(("family", "expected"), [("win32", "AppData/Local/hermes"), ("linux", None)])
+    def test_case_fold_follows_the_host_os_family(self, monkeypatch, family, expected):
+        monkeypatch.setattr(approval_detection.facts, "os_family", lambda: family)
+        assert approval_detection._path_below(r"c:\users\tester", r"C:\Users\tester\AppData\Local\hermes") == expected
 
 
 class TestUnrelatedPathsStaySafe:
