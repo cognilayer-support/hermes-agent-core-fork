@@ -21,8 +21,9 @@ logger = logging.getLogger(__name__)
 
 SOURCE_SIDECAR_DIR = Path(__file__).parent / "sidecar"
 # Files that define the sidecar; node_modules is deliberately absent (baked on managed
-# images or installed by npm in the mirror). .npmrc rides along so the mirrored
-# `npm ci` resolves under the same release-age gate as the source tree (#134019).
+# images or installed by npm in the mirror). .npmrc rides along so a fresh resolve in
+# the mirror (the `npm install` fallback when `npm ci` refuses a drifted lockfile) keeps
+# the source tree's release-age gate (#134019); `npm ci` from the lockfile never reads it.
 _MIRROR_FILES = (
     "index.mjs",
     "package.json",
