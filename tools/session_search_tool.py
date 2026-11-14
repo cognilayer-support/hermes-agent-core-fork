@@ -249,6 +249,7 @@ def _redact_tool_calls(tool_calls: Any) -> Any:
 
 
 _DATA_URL_PLACEHOLDER = "[inline data omitted]"
+_DATA_URL_RE = re.compile(r"data:[^\s,]*;base64,")
 
 
 def _redact_derived_value(value: Any) -> Any:
@@ -256,7 +257,7 @@ def _redact_derived_value(value: Any) -> Any:
     part lists, tool_calls), keeping the shape. Inline ``data:`` URLs (base64 images) are
     replaced outright: they are opaque to the redactor and never useful in recall output."""
     if isinstance(value, str):
-        return _DATA_URL_PLACEHOLDER if value.startswith("data:") else redact_derived_text(value)
+        return _DATA_URL_PLACEHOLDER if _DATA_URL_RE.match(value) else redact_derived_text(value)
     if isinstance(value, list):
         return [_redact_derived_value(v) for v in value]
     if isinstance(value, dict):

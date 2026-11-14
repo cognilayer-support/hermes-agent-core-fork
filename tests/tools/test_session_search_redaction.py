@@ -116,3 +116,18 @@ def test_multipart_title_match_bookends_are_redacted(multipart_db, monkeypatch):
     assert hit["matched_role"] == "session_title"
     assert hit["bookend_start"] and hit["bookend_end"]
     assert SECRET_BODY not in _dump(hit) and IMAGE_URL not in _dump(hit)
+
+
+# Only base64 data URLs are inline data; text that merely starts with "data:" (SSE, prose) is not.
+@pytest.mark.parametrize("content", [
+    "data: the quarterlyneedle table has three columns",
+    'data: {"delta": "quarterlyneedle"}\n\ndata: [DONE]',
+])
+def test_text_starting_with_data_is_not_an_inline_data_url(tmp_path, content):
+    db = SessionDB(tmp_path / "state.db")
+    db.create_session("s_sse", source="cli")
+    db.append_message("s_sse", role="user", content=content)
+    db.append_message("s_sse", role="assistant", content="ok")
+    hit = json.loads(session_search(query="quarterlyneedle", db=db))["results"][0]
+    assert next(m for m in hit["messages"] if m.get("anchor"))["content"] == content
+    assert ">>>quarterlyneedle<<<" in hit["snippet"]
