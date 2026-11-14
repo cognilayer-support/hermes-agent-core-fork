@@ -1435,10 +1435,10 @@ _CREDENTIAL_STORE_RES = (
     re.compile(r'(:_(?:authToken|auth|password)[ \t]*=[ \t]*)(?!"?\$\{\w+\??\}"?(?:\s|$))(\S+)'),
 )
 # INI ``password = X`` (``.pypirc``, ``~/.aws/credentials``): the anchored config pass only accepts
-# ``key=value`` with no spaces around ``=``. The value runs to end of line: configparser keeps
-# internal spaces.
+# ``key=value`` with no spaces around ``=``, and stops ``password=a b`` at the first space. The value
+# runs to end of line: configparser keeps internal spaces.
 _INI_SPACED_ASSIGN_RE = re.compile(
-    rf"(^[ \t]*{_LINE_NUMBER_GUTTER}[A-Za-z0-9_.\-]*{_SECRET_CFG_NAMES}[A-Za-z0-9_.\-]*(?:[ \t]+=[ \t]*|=[ \t]+))(\S(?:[^\r\n]*\S)?)",
+    rf"(^[ \t]*{_LINE_NUMBER_GUTTER}[A-Za-z0-9_.\-]*{_SECRET_CFG_NAMES}[A-Za-z0-9_.\-]*(?:[ \t]+=[ \t]*|=[ \t]+|=(?=\S+[ \t]+[^\s#])))(\S(?:[^\r\n]*\S)?)",
     re.IGNORECASE | re.MULTILINE,
 )
 
@@ -1557,10 +1557,11 @@ def redact_sensitive_text(text: str, *, force: bool = False, code_file: bool = F
         _zhipu_sub = _mask_token_nonreusable if file_read else _mask_token
         text = _ZHIPU_API_KEY_RE.sub(lambda m: _zhipu_sub(m.group(1)), text)
 
-    if not code_file:
-        text = _redact_assignments(text, mask_nonreusable=file_read)
+    # Store lines first: the assignment passes would mask only the first word of ``password=a b``.
     if secret_file:
         text = _redact_credential_store_lines(text, mask_nonreusable=file_read)
+    if not code_file:
+        text = _redact_assignments(text, mask_nonreusable=file_read)
 
     # Flags and connection-string keys carry a credential in command text, so they are not
     # gated on code_file: the shape (``--password=`` / ``;AccountKey=``) is unambiguous, and
