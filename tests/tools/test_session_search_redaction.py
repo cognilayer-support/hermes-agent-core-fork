@@ -148,3 +148,25 @@ def test_browse_preview_drops_key_cut_by_the_crop(tmp_path, lead, pad, key):
     rows = {r["session_id"]: r for r in json.loads(session_search(db=db))["results"]}
     assert key[:12] not in rows["s_cut"]["preview"]
     assert rows["s_dots"]["preview"] == "wait..."
+
+
+# Adaptive discovery fully hydrates only the top hit; lower-ranked hits are "compact" entries
+# (anchor message + snippet). Seed several matching sessions so compact entries are exercised.
+def test_lower_ranked_compact_results_are_redacted(tmp_path, monkeypatch):
+    from agent import redact
+    monkeypatch.setattr(redact, "_redact_enabled", lambda: False)
+    db = SessionDB(tmp_path / "state.db")
+    for i, content in enumerate([f"rankneedle token {SECRET}", f"rankneedle key {SK_KEY}",
+                                 [{"type": "text", "text": f"rankneedle multimodal {SECRET}"},
+                                  {"type": "image_url", "image_url": {"url": IMAGE_URL}}]]):
+        db.create_session(f"s_rank{i}", source="cli")
+        db.append_message(f"s_rank{i}", role="user", content=content)
+        db.append_message(f"s_rank{i}", role="assistant", content="ok")
+    results = json.loads(session_search(query="rankneedle", db=db))["results"]
+    compact = [r for r in results if r["detail"] == "compact"]
+    assert len(results) == 3 and len(compact) == 2, results
+    for hit in compact:
+        assert [m.get("anchor") for m in hit["messages"]] == [True]
+        assert ">>>rankneedle<<<" in hit["snippet"]
+    blob = _dump(results)
+    assert SECRET_BODY not in blob and SK_TAIL not in blob and IMAGE_URL not in blob
