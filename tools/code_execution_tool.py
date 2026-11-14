@@ -86,7 +86,8 @@ def _spill_full_stdout(stdout_text: str, env: Any = None) -> Optional[str]:
     the truncated inline output is still returned). Keyed by content digest so identical
     reruns coalesce. The spill is a second emitter of the output the warning tells the
     model to page with read_file, so it gets the same ANSI strip + secret redaction as
-    the inline text, and is owner-only (cache/exec is never bind-mounted into a backend).
+    the inline text, and is owner-only (cache/exec is never bind-mounted into a backend):
+    files 0600, a new dir 0700; an existing dir loses only its world bits.
     In a hosted scope the file goes into the agent's own sandbox (*env*) or nowhere: the
     output is the tenant's and this host keeps none of it."""
     try:
@@ -101,7 +102,7 @@ def _spill_full_stdout(stdout_text: str, env: Any = None) -> Optional[str]:
         digest = hashlib.sha256(stdout_text.encode("utf-8", errors="replace")).hexdigest()[:12]
         if (hosted_path := _persist_hosted(stdout_text, f"exec-stdout-{digest}", env)) is not None:
             return hosted_path or None
-        cache_dir = ensure_spill_dir(get_hermes_dir("cache/exec", "exec_spill"))
+        cache_dir = ensure_spill_dir(get_hermes_dir("cache/exec", "exec_spill"), keep_group=True)
         path = cache_dir / f"stdout-{digest}.txt"
         write_text_exclusive(path, stdout_text, overwrite=True)
         return str(path)

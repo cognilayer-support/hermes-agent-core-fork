@@ -995,6 +995,21 @@ class TestHeadTailTruncation(unittest.TestCase):
             self.assertEqual(stat_mod.S_IMODE(os.stat(spill).st_mode), 0o600)
             self.assertEqual(stat_mod.S_IMODE(os.stat(os.path.dirname(spill)).st_mode), 0o700)
 
+    @pytest.mark.platforms("posix")
+    def test_spill_keeps_group_bits_of_existing_cache_dir(self):
+        """Tightening an existing cache/exec drops world bits only: a shared-group home
+        (HERMES_HOME_MODE=2770) keeps group access; the spill file itself is 0600."""
+        import stat as stat_mod
+        from hermes_constants import get_hermes_dir
+        from tools.code_execution_tool import _spill_full_stdout
+        cache_dir = get_hermes_dir("cache/exec", "exec_spill")
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        os.chmod(cache_dir, 0o2777)
+        spill = _spill_full_stdout("group-shared spill\n")
+        self.assertTrue(spill)
+        self.assertEqual(os.stat(cache_dir).st_mode & 0o7777, 0o2770)
+        self.assertEqual(stat_mod.S_IMODE(os.stat(spill).st_mode), 0o600)
+
 
 class TestRpcTokenAuthorization(unittest.TestCase):
     """The per-session RPC token must gate socket dispatch (fail-closed).
