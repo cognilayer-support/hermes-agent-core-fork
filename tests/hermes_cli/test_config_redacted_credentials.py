@@ -280,3 +280,30 @@ def test_spaced_redaction_marker_is_refused_by_every_writer(home):
         save_config(cfg)
     with pytest.raises(ConfigValueError, match="mcp_servers.s.private_key"):
         write_config_key(get_config_path(), "mcp_servers.s.private_key", marker)
+
+
+def test_document_writer_guard_read_keeps_the_read_base(home, monkeypatch):
+    """The mask check's on-disk read is a guard read: Remote Config must keep diffing the save
+    against the caller's own read, so it runs under ``preserve_read_base`` like the omission guard."""
+    import contextlib
+
+    from hermes_cli import config
+    from hermes_cli.config_backend import ConfigValueError, FileBackend
+    inside, seen = [False], []
+
+    @contextlib.contextmanager
+    def preserve(self):
+        inside[0] = True
+        try:
+            yield
+        finally:
+            inside[0] = False
+
+    real_read = config.read_user_config_raw
+    monkeypatch.setattr(FileBackend, "preserve_read_base", preserve)
+    monkeypatch.setattr(config, "read_user_config_raw", lambda *a, **k: (seen.append(inside[0]), real_read(*a, **k))[1])
+    cfg = config.read_raw_config()
+    cfg["model"] = {"api_key": "***"}
+    with pytest.raises(ConfigValueError, match="model.api_key"):
+        config.save_config(cfg)
+    assert seen and all(seen)
