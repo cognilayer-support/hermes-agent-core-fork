@@ -737,7 +737,7 @@ class TestCellStdoutSpill(unittest.TestCase):
         if os.name == "posix":
             self.assertEqual(stat_mod.S_IMODE(os.stat(spill).st_mode), 0o600)
 
-    @pytest.mark.skipif(os.name != "posix", reason="symlink squat is a POSIX primitive")
+    @pytest.mark.platforms("posix")
     def test_cell_spill_refuses_preplanted_symlink(self):
         """A cell sharing the kernel tmpdir can squat cell_NNNNNN_stdout.txt with a
         symlink; the runner's spill write must not follow it onto a host file."""
@@ -769,7 +769,7 @@ class TestCellStdoutSpill(unittest.TestCase):
             self.assertIn("ghp_0123456789abcdef",
                           foreign.read_text(encoding="utf-8"))
 
-    @pytest.mark.skipif(os.name != "posix", reason="O_NOFOLLOW is a POSIX primitive")
+    @pytest.mark.platforms("posix")
     def test_sanitize_cell_spill_refuses_replanted_symlink(self):
         """A link swapped in after the runner wrote must not be read through."""
         from types import SimpleNamespace
@@ -783,7 +783,7 @@ class TestCellStdoutSpill(unittest.TestCase):
             self.assertEqual(_sanitize_cell_spill(kernel, str(link)), "")
             self.assertEqual(foreign.read_text(encoding="utf-8"), "sentinel")
 
-    @pytest.mark.skipif(os.name != "posix", reason="FIFO and intermediate symlinks are POSIX primitives")
+    @pytest.mark.platforms("posix")
     def test_sanitize_cell_spill_refuses_fifo_and_dotdot(self):
         """A cell can forge or swap the published name; a FIFO there would park the
         host thread at open() (under kernel.lock), and a 'tmpdir/link/../victim'

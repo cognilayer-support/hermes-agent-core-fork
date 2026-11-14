@@ -865,7 +865,7 @@ def _sanitize_cell_spill(kernel: SessionKernel, cell_spill: str) -> str:
                 st = os.fstat(fd)
                 if not stat.S_ISREG(st.st_mode) or st.st_size > _CELL_SPILL_READ_CAP:
                     return ""
-                fh = os.fdopen(fd, "r", encoding="utf-8", errors="replace")
+                fh = os.fdopen(fd, "r", encoding="utf-8-sig", errors="replace")
                 fd = -1  # fh owns the descriptor from here
                 with fh:
                     raw = fh.read(_CELL_SPILL_READ_CAP + 1)

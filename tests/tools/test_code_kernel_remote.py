@@ -414,7 +414,7 @@ class TestSharedHostLockdown(RemoteKernelBase):
         self.assertFalse(any("base64 -d" in c for c in env.commands), env.commands)
 
 
-@pytest.mark.skipif(os.name != "posix", reason="owner-only modes are POSIX semantics")
+@pytest.mark.platforms("posix")
 class TestRemotePerCallSpillE2E(RemoteKernelBase):
     """Real-transport end-to-end for the stdout spill emitter: LocalEnvironment is
     a real local bash transport, so _run_remote_per_call exercises the actual
