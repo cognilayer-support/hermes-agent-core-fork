@@ -555,8 +555,9 @@ def test_ws_events_rejects_when_token_required(tmp_path, monkeypatch):
     # is flaky. The assertion that matters is: no CancelledError escaped.
 
 def test_ws_events_applies_the_dashboard_host_origin_guard(kanban_home, monkeypatch):
-    """Every core dashboard WS runs ``_ws_request_is_allowed`` after the credential check;
-    the kanban stream must too, so a valid credential from a foreign Origin is refused."""
+    """The route runs ``_ws_request_is_allowed`` itself after the credential check. In the
+    dashboard ``PluginApiWebSocketGate`` already refuses a foreign Origin before routing; this
+    bare app has no middleware, so it pins the route's own check (defence in depth)."""
     from starlette.websockets import WebSocketDisconnect
 
     from hermes_cli import web_server, web_server_chat

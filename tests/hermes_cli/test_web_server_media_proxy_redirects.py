@@ -52,3 +52,18 @@ async def test_redirect_between_allowlisted_hosts_is_followed(monkeypatch):
     _route_through(monkeypatch, handler)
     result = await files.proxy_remote_media("https://fal.run/files/abc", request=None)
     assert result["data_url"].startswith("data:image/png;base64,")
+
+
+@pytest.mark.asyncio
+async def test_relative_redirects_resolve_and_stop_at_the_cap(monkeypatch):
+    fetched = []
+
+    def handler(request):
+        fetched.append(request.url.path)
+        return httpx.Response(302, headers={"location": f"/hop/{len(fetched)}"})
+
+    _route_through(monkeypatch, handler)
+    with pytest.raises(HTTPException) as exc:
+        await files.proxy_remote_media("https://v3.fal.media/media/abc", request=None)
+    assert exc.value.status_code == 502
+    assert fetched == ["/media/abc", "/hop/1", "/hop/2", "/hop/3"]
