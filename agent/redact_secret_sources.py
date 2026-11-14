@@ -35,6 +35,14 @@ _MIN_VALUE_CHARS = 8
 # often exactly a lowercase word.
 _PLAIN_WORD_OR_HOST_RE = re.compile(r"[A-Za-z][a-z]*|[a-z0-9-]+(?:\.[a-z0-9-]+)+")
 
+# Line-oriented output (``env | sort``, ``grep -v key``, ``sed -n 2,4p`` of a key file) splits a PEM
+# body from its armor and from the rest of the value, so only the exact line is left to recognise.
+# Only a PEM-armored value contributes lines, and only lines of bare base64 material: a line of a
+# service-account JSON (``"type": "service_account",``) or a short trailer would become an unanchored
+# scrub of ordinary text. Body lines are 64 (PEM) or 70 (OpenSSH) chars; the last one can be ~20.
+_PEM_ARMOR = "-----BEGIN "
+_SECRET_LINE_RE = re.compile(r"[A-Za-z0-9+/=]{16,}")
+
 _VALUES_BY_HOME: dict[str, tuple[str, ...]] = {}
 
 
@@ -52,6 +60,16 @@ def _worth_registering(name: str, value: str) -> bool:
     return _key_has_secret_keyword(name) and not _PLAIN_WORD_OR_HOST_RE.fullmatch(stripped)
 
 
+def _multiline_fragments(value: str) -> list[str]:
+    """The joined form (what a text input or ``tr -d '\\n'`` leaves) and, for a PEM value, each body line."""
+    if "\n" not in value and "\r" not in value:
+        return []
+    joined = value.replace("\r", "").replace("\n", "")
+    if _PEM_ARMOR not in value:
+        return [joined]
+    return [joined, *(ln for ln in (raw.strip() for raw in value.splitlines()) if _SECRET_LINE_RE.fullmatch(ln))]
+
+
 def publish_secret_source_values(hermes_home: str | Path, values: dict[str, str]) -> None:
     """Replace ``hermes_home``'s registered values with the ones its sources just applied."""
     from hermes_constants import hermes_home_key
@@ -64,6 +82,7 @@ def publish_secret_source_values(hermes_home: str | Path, values: dict[str, str]
             # How a tool that serialises its result as JSON (MCP, read_file of a .json) carries it.
             exact[json.dumps(value)[1:-1]] = None
             exact[json.dumps(value, ensure_ascii=False)[1:-1]] = None
+            exact.update(dict.fromkeys(_multiline_fragments(value)))
     key = hermes_home_key(hermes_home)
     if not exact:  # revoked or never supplied: unregister, and keep the empty-registry fast path
         _VALUES_BY_HOME.pop(key, None)
