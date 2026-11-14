@@ -1160,7 +1160,9 @@ def _scan_written_bodies(
     overwrite replaces the last); their concatenation is the file ``>>`` appends build. Joined
     overwrites can form a masked ``cat <<'DOC'`` around a command the file really runs, so the join
     is never scanned alone. A body is a substring of charged text (charge_text frees its first
-    scan only); the join is new text, so it is charged like any other."""
+    scan only); the join is new text, so it is charged like any other. A script built from large
+    ``>>`` appends therefore costs about twice its size: one near half the walk budget fails
+    closed on the budget refusal."""
     bodies = list(dict.fromkeys(filter(None, bodies)))
     if any(recurse(body, cwd, executed, charge=False) for body in bodies):
         return True
