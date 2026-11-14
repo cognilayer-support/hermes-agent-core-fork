@@ -643,9 +643,9 @@ _PYTHON_EXCEPTION_LINE_RE = re.compile(
 # name and scheme word preserved. The credential class excludes quotes: pulling
 # a closing quote into the mask turns value corruption into SYNTAX corruption
 # (unterminated quote → shell EOF / SyntaxError). A scheme word with no token after it
-# (``"authorization: bearer "``) is not a credential: the optional scheme group backs off
-# and would otherwise mask the scheme word itself (#142574).
-_AUTH_SCHEME_WORD = r"(?:bearer|basic|bot|token|digest|negotiate|ntlm|oauth)(?![^\s\"'])"
+# (``"authorization: bearer "``, ``(Authorization: Basic)``) is not a credential: the optional
+# scheme group backs off and would otherwise mask the scheme word itself (#142574).
+_AUTH_SCHEME_WORD = r"(?:bearer|basic|bot|token|digest|negotiate|ntlm|oauth)(?=[`)\],.;:!?]*(?:[\s\"']|$))"
 _AUTH_HEADER_RE = re.compile(
     rf"((?:Proxy-)?Authorization:\s*)([A-Za-z][\w.+-]*\s+)?(?!{_AUTH_SCHEME_WORD})([^\s\"']+)", re.IGNORECASE)
 
@@ -1291,7 +1291,6 @@ def _assignment_sub(render, *, check_keyword: bool):
     return _sub
 
 
-_JSON_FLAG_VALUES = frozenset({"true", "false", "yes", "no", "null", "none"})
 _JSON_VALUE_SUFFIX_RE = re.compile(r"[_.\-]?(?:value|Value|VALUE)$")
 
 
@@ -1306,9 +1305,9 @@ def _json_affixed_key_secret(key: str, value: str) -> bool:
     # A key that does not END in the credential word is metadata about one: ``passwordChanged``,
     # ``password_expires_at``, ``tokenUrl``, ``secret_id``, ``secret_arn``, ``PASSWORD_STORE_DIR``
     # carry timestamps, URLs and ids that look opaque, so the value shape cannot decide (#149435
-    # review). A boolean answers ``has_password``, it does not hold one.
+    # review).
     # ``api_key_value`` / ``passwordValue`` hold the credential itself: drop that one suffix first.
-    return _is_python_repr_secret_key(_JSON_VALUE_SUFFIX_RE.sub("", key)) and value.casefold() not in _JSON_FLAG_VALUES
+    return _is_python_repr_secret_key(_JSON_VALUE_SUFFIX_RE.sub("", key))
 
 
 def _redact_json_affixed_key(m: "re.Match[str]", mask) -> str:

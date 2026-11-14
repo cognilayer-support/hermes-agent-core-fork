@@ -29,6 +29,7 @@ def test_opaque_value_under_secret_named_key_still_masked():
 @pytest.mark.parametrize("text", [
     "python-3.14.7+" + "20260901-linux-x64",
     "torch==2.5.1+" + "20260901.cu124",
+    "2.0.0-rc+" + "20260901123045",
 ])
 def test_version_local_segment_is_not_a_phone(text):
     assert redact_sensitive_text(text, force=True) == text
@@ -46,12 +47,15 @@ def test_phone_number_still_masked(text):
     '    "authorization: bot ",',
     "Authorization: Basic",
     "proxy-authorization: token",
+    "Send the `Authorization: Bearer` header.",
+    "(Proxy-Authorization: Basic)",
+    "Authorization: Token;",
 ])
 def test_bare_authorization_scheme_word_is_kept(text):
     assert redact_sensitive_text(text, force=True) == text
 
 
-@pytest.mark.parametrize("header", ["Authorization: Bearer ", "Authorization: Bot ", "Authorization: "])
+@pytest.mark.parametrize("header", ["Authorization: Bearer ", "Authorization: Bot ", "Authorization: ", "Authorization: token:"])
 def test_authorization_credential_still_masked(header):
     credential = "opaque" + "Cred3ntialValue0123456789"
     out = redact_sensitive_text(f'curl -H "{header}{credential}"', force=True)
