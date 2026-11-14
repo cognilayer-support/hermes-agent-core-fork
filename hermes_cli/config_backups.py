@@ -57,6 +57,13 @@ def backup_config(config_path: Path, reason: str, *, keep: int = DEFAULT_KEEP) -
         root = backups_dir(config_path)
         root.mkdir(parents=True, exist_ok=True)
         _sweep_legacy_siblings(config_path, root)
+        # Copies written before backups were secured kept their source's (often 0644) mode, and a
+        # reason that never fires again never rotates them out. Drop only the world bits, as for
+        # config.yaml writes: a shared-group home may keep its backups group-readable on purpose.
+        from hermes_cli.config_backend import drop_other_access
+        for old in list_config_backups(config_path):
+            if not old.is_symlink():
+                drop_other_access(old)
         existing = list_config_backups(config_path, reason)
         # Not filecmp.cmp: its process-wide cache keys on (size, mtime), so an equal-size edit
         # within one mtime tick of an earlier comparison is reported identical and never backed up.
