@@ -906,6 +906,7 @@ _COMMAND_WRAPPER_NON_EXECUTING_OPTIONS = {
     # sudo's list / validate / remove-timestamp modes take no command (`sudo -k cmd` does run it).
     "sudo": {"-l", "--list", "-v", "--validate", "-K", "--remove-timestamp"},
 }
+
 _COMMAND_WRAPPER_POSITIONAL_ARGS = {"chroot": 1, "chrt": 1, "taskset": 1, "timeout": 1}
 _SHELL_COMMAND_TRANSITIONS = {"if", "then", "else", "elif", "do", "while", "until", "!"}
 _SHELL_REDIRECTION_RE = re.compile(r"(?:[0-9]+)?(?:>>|<<|<>|>&|<&|>\||[<>])")
@@ -1528,6 +1529,7 @@ def _mask_quoted_newlines_span(command: str, start: int, end: int) -> str:
 
 def _iter_shell_command_word_spans(command: str):
     """Yield command-position words that may be executable names."""
+    from tools.approval_wrappers import _is_query_option
     for pos in _iter_shell_command_starts(command):
         wrapper, positionals = None, 0
         options, skip_arg = True, False
@@ -1556,7 +1558,8 @@ def _iter_shell_command_word_spans(command: str):
                     break
                 queries = _COMMAND_WRAPPER_NON_EXECUTING_OPTIONS.get(wrapper, set())
                 if option in queries or (wrapper == "command" and not option.startswith("--")
-                                         and set(option[1:]) & {"v", "V"}):
+                                         and set(option[1:]) & {"v", "V"}) or (
+                        wrapper == "sudo" and _is_query_option("sudo", option)):  # `-nl`, not `-ul`
                     break
                 skip_arg = "=" not in deobfuscated and option in _COMMAND_WRAPPER_OPTIONS_WITH_ARG.get(wrapper, set())
                 continue
