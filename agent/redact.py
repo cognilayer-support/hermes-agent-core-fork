@@ -500,6 +500,10 @@ def _looks_like_opaque_credential(value: str) -> bool:
     return sum(bool(re.search(p, value)) for p in (r"[a-z]", r"[A-Z]", r"[0-9]")) >= 2
 
 
+# The key group of the INI pass carries the gutter and the ``=`` separator.
+_AWS_CREDENTIAL_PROCESS_KEY_RE = re.compile(r"(?:^|[^\w.\-])credential_process[ \t]*=?[ \t]*$")
+
+
 def _should_redact_assignment(key: str, value: str, *, check_keyword: bool) -> bool:
     """Shared gate for the ENV / JSON / YAML assignment passes: skip programmatic env
     lookups used as values, optionally require a word-bounded keyword in the key,
@@ -518,6 +522,9 @@ def _should_redact_assignment(key: str, value: str, *, check_keyword: bool) -> b
     if value == "***" or value.startswith("«redacted"):
         return False
     if check_keyword and not _key_has_secret_keyword(key):
+        return False
+    # AWS ``credential_process`` holds the helper command that fetches the credential, not the secret.
+    if _AWS_CREDENTIAL_PROCESS_KEY_RE.search(key):
         return False
     # A shell rc's ``SSH_AUTH_SOCK=$HOME/.ssh/agent.sock`` is configuration the agent must keep
     # readable; only password-class keys mask a path/variable reference.
