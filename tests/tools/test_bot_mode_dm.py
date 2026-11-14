@@ -518,6 +518,7 @@ def test_bare_peer_name_shadowing_a_local_teammate_is_ambiguous(tmp_path, monkey
     assert "error" in result
     assert "ambiguous" in result["error"]
     assert "ops/<agent>" in result["error"]
+    assert "@ops" not in result["error"]  # never offer the colliding name as the local route
     assert result["peers"] == ["ops"]
 
 
@@ -534,6 +535,7 @@ def test_bare_peer_name_shadowing_two_local_friendly_names_is_refused(tmp_path, 
         result = json.loads(bot_mode_dm.message_agent_tool(target=target, message="ping",
                                                            agent=_FakeAgent(home)))
         assert "ambiguous" in result["error"]
+        assert "@aaa or @bbb" in result["error"]  # the names that reach them, not the colliding one
     assert calls == []
 
 
@@ -544,6 +546,7 @@ def test_peer_agent_form_still_reaches_the_peer_when_names_collide(tmp_path, mon
     monkeypatch.setattr(bot_relay, "_hermes_cli", lambda: "hermes")
     monkeypatch.setattr("socket.gethostname", lambda: "eri-mac.local")
     home = _managed_home(tmp_path, teammates=("ops",), peers=("ops",))
+    _rename(home, "ops", title="Ops Researcher")  # slugs to 'ops-researcher': still not a bare name
     agent = _FakeAgent(home, title="Bot Chat")
 
     result = json.loads(
