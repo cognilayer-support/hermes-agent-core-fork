@@ -134,25 +134,23 @@ def _assert_profile_unowned(db) -> None:
     owner captures it ONCE at boot, so a bump by a process that does not own the profile
     leaves the live owner permanently behind the fence (#142330).
 
-    A record naming this process (pid AND PID namespace) is our own reservation: the gateway,
-    a served secondary or a maintenance reservation here (a flock probe from this process would
-    contend with its own lock). Otherwise the flock decides, not the record: it answers across
-    PID namespaces and before the holder publishes its record (#123081).
-    No lock file means no owner, and the bump is the takeover."""
-    from gateway.runtime_ownership import canonical_home, runtime_lock_held_elsewhere
+    A reservation this process holds right now is ours: the gateway, a served secondary or a
+    maintenance reservation here (a flock probe from this process would contend with its own
+    lock). The lock record never grants it: it outlives a release, and a recorded pid cannot be
+    checked across PID namespaces (#123081). Otherwise the flock decides, which also answers
+    before a holder publishes its record. No lock file means no owner: the bump is the takeover."""
+    from gateway.runtime_ownership import canonical_home, held_by_this_process, runtime_lock_held_elsewhere
     from gateway.status import _live_pid_from_record, _read_gateway_lock_record
-    from hermes_state_pidns import pid_namespace_id
 
     home = _profile_home_of(db)
     if home is None:
         return
     home = canonical_home(home)
     lock_path = home / 'gateway.lock'
+    if held_by_this_process(home) or not lock_path.exists() or not runtime_lock_held_elsewhere(home):
+        return
     record = _read_gateway_lock_record(lock_path)
     holder = _live_pid_from_record(record) if record else None
-    ours = holder == os.getpid() and record.get('pidns') == pid_namespace_id()
-    if ours or not lock_path.exists() or not runtime_lock_held_elsewhere(home):
-        return
     raise RuntimeStoreError(
         'ownership_conflict',
         field='runtime_epoch',

@@ -117,6 +117,31 @@ def test_a_record_naming_this_pid_in_another_pid_namespace_is_not_ours(tmp_path,
         db.close()
 
 
+def test_our_released_reservations_record_does_not_grant_the_bump(tmp_path, hold_profile):
+    """A record naming this process outlives our release: a foreign holder that took the flock
+    since but has not rewritten it yet must still fence the bump."""
+    import hermes_state_runtime as rt
+    from gateway.runtime_ownership import ProfileOwnership
+
+    db = SessionDB(db_path=tmp_path / "state.db")
+    ownership = ProfileOwnership()
+    try:
+        epoch = rt.begin_runtime_epoch(db, instance_id="owner")
+        ownership.reserve([tmp_path])
+        ours = (tmp_path / "gateway.lock").read_text(encoding="utf-8")
+        ownership.release(tmp_path)
+        hold_profile(tmp_path)
+        (tmp_path / "gateway.lock").write_text(ours, encoding="utf-8")  # the holder has not published
+
+        with pytest.raises(rt.RuntimeStoreError) as exc:
+            rt.begin_runtime_epoch(db, instance_id="stranger")
+        assert exc.value.reason == "ownership_conflict"
+        assert _epoch_of(db) == epoch
+    finally:
+        ownership.close()
+        db.close()
+
+
 @pytest.mark.platforms("any")
 def test_the_owner_itself_may_bump_the_epoch(tmp_path):
     """The holder of the profile lock is the one taking the store over - it must be allowed."""
