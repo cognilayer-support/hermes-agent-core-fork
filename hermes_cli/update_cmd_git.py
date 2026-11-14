@@ -625,8 +625,13 @@ def _portable_git_candidates() -> list:
     with suppress(Exception):
         trees += [root / "git" for root in (get_default_hermes_root(), Path(get_hermes_home()))]
     with suppress(Exception):  # install.ps1 and pm stage it at <store>/git-<version>-<target>/
+        import re
         from pm.paths import store_root
-        trees += sorted(store_root().glob("git-*-win32-*"), reverse=True)
+        trees += sorted(
+            store_root().glob("git-*-win32-*"),
+            key=lambda entry: [int(n) for n in re.findall(r"\d+", entry.name)],  # 2.56.10 before 2.56.9
+            reverse=True,
+        )
     return [
         tree / prefix / "libexec" / "git-core" / "git.exe"
         for tree in trees
