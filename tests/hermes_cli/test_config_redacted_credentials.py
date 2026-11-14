@@ -215,6 +215,32 @@ def test_provider_keys_still_refuse_every_mask_shape(home):
             save_env_value("OPENAI_API_KEY", mask)
 
 
+def test_password_with_whitespace_refuses_a_mask_of_itself(home):
+    """``mask_secret("my secret password 2026")`` is ``my s...2026``: a mask with a space in it."""
+    from agent.redact import _mask_token, mask_secret
+    from hermes_cli.config import get_config_path, load_env, read_raw_config, save_config, save_env_value
+    from hermes_cli.config_backend import ConfigValueError, write_config_key
+    stored = "my secret password 2026"
+    save_env_value("SUDO_PASSWORD", stored)
+    cfg = read_raw_config()
+    cfg["dashboard"] = {"basic_auth": {"username": "op", "password": stored}}
+    save_config(cfg)
+    for mask in (mask_secret(stored), _mask_token(stored)):
+        assert " " in mask
+        with pytest.raises(ValueError, match="redacted display mask"):
+            save_env_value("SUDO_PASSWORD", mask)
+        cfg["dashboard"]["basic_auth"]["password"] = mask
+        with pytest.raises(ConfigValueError, match="dashboard.basic_auth.password"):
+            save_config(cfg)
+        with pytest.raises(ConfigValueError, match="dashboard.basic_auth.password"):
+            write_config_key(get_config_path(), "dashboard.basic_auth.password", mask)
+        with pytest.raises(ConfigValueError, match="dashboard.basic_auth.password"):
+            write_config_key(get_config_path(), "dashboard.basic_auth", {"username": "op", "password": mask})
+    assert load_env()["SUDO_PASSWORD"] == stored
+    assert read_raw_config()["dashboard"]["basic_auth"]["password"] == stored
+    save_env_value("SUDO_PASSWORD", "my new pass...word 2026")  # a new spaced password still saves
+
+
 @pytest.mark.parametrize("key", ["model.api_key", "mcp_servers.s.headers.X-API-Key"])
 def test_keyed_writer_refuses_masks(home, key):
     """``write_config_key(s)`` (per-key round-trip, not the document writer) runs the same check."""

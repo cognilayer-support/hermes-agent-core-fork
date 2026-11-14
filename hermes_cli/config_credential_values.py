@@ -93,6 +93,14 @@ def _masks_of(stored: Any) -> set[str]:
     return {"***", mask_secret(stored), _mask_token(stored), _mask_token_nonreusable(stored)}
 
 
+def _may_be_mask(key: str, value: Any) -> bool:
+    """Worth the write-back check. A password can hold whitespace, so its masks can too
+    (``mask_secret("my secret pw 2026")`` is ``my s...2026``): for a password any ``...`` counts."""
+    if is_redacted_credential_value(value):
+        return True
+    return _is_password_name(key) and isinstance(value, str) and "..." in value
+
+
 def _is_mask_write_back(key: str, value: Any, stored: Iterable[Any]) -> bool:
     """``value`` would replace a credential with a display mask: any mask for a provider-style
     credential name; for a password name, a marker word or a mask of a ``stored`` value."""
@@ -127,7 +135,7 @@ def _stored_env_values(key: str) -> tuple[Any, ...]:
 
 def refuse_redacted_env_value(key: str, value: Any) -> None:
     """Raise ``ValueError`` when a credential ``.env`` entry would store a redacted mask."""
-    if not (is_redacted_credential_value(value) and _is_credential_env_name(key)):
+    if not (_may_be_mask(key, value) and _is_credential_env_name(key)):
         return
     if _is_mask_write_back(key, value, _stored_env_values(key) if _is_password_name(key) else ()):
         raise ValueError(
@@ -172,7 +180,7 @@ def refuse_redacted_config_credentials(new: Any, read_old: Callable[[], Any]) ->
     location, while the same mask string at any other credential path is still a new write. A
     password leaf is refused only for a mask of the value stored at its location (see
     ``_PASSWORD_NAME_RE``)."""
-    masked = [leaf for leaf in _credential_leaves(new) if is_redacted_credential_value(leaf[2])]
+    masked = [leaf for leaf in _credential_leaves(new) if _may_be_mask(leaf[0], leaf[2])]
     if not masked:
         return
     on_disk: dict[tuple[str, ...], list[Any]] = {}
@@ -189,18 +197,18 @@ def refuse_redacted_config_credentials(new: Any, read_old: Callable[[], Any]) ->
             "not the credential. Enter the real secret or a ${ENV_VAR} reference.")
 
 
-def _holds_mask(value: Any) -> bool:
+def _holds_mask(value: Any, key: str) -> bool:
     if isinstance(value, dict):
-        return any(_holds_mask(v) for v in value.values())
+        return any(_holds_mask(v, str(k)) for k, v in value.items())
     if isinstance(value, list):
-        return any(_holds_mask(v) for v in value)
-    return is_redacted_credential_value(value)
+        return any(_holds_mask(v, key) for v in value)
+    return _may_be_mask(key, value)
 
 
 def refuse_redacted_config_sets(sets: Mapping[str, Any], read_old: Callable[[], Any]) -> None:
     """:func:`refuse_redacted_config_credentials` for a keyed write (``write_config_keys``,
     ``Changes.set``): the dotted ``sets`` are checked as the nested document they write."""
-    if not any(_holds_mask(value) for value in sets.values()):
+    if not any(_holds_mask(value, key) for key, value in sets.items()):
         return  # no hermes_cli.config import for ordinary keyed writes (PM runtime)
     from hermes_cli.config import _split_key_path
 
