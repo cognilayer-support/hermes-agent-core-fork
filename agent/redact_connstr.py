@@ -136,8 +136,11 @@ def _redact_kv_connection_line(line: str, code_file: bool) -> str:
         # Templates, not credentials: ``Password={0}``, ``Password=${DB_PASS}``, ``{pw}``. ODBC braces a
         # literal value (``PWD={Zq7x;LmP2}``), so on a ``;`` line only a format slot or an identifier
         # counts as a template; ``cat appsettings.json`` output is read as code_file.
+        # A value that holds another key (``${a'Password=x}``) is not a template: skipping it would
+        # also skip that key, as ``scanned`` now covers the whole value.
         if code_file and bare.startswith(("{", "${")) and bare.endswith("}") and (
-                not semicolon or bare.startswith("${") or _FORMAT_SLOT_RE.fullmatch(bare)):
+                not semicolon or bare.startswith("${") or _FORMAT_SLOT_RE.fullmatch(bare)) and (
+                not _KV_CONNSTR_PW_RE.search(line, vstart, vend)):
             continue
         if value[0] == "{" and semicolon:
             masked = "{***}"

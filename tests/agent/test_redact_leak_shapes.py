@@ -112,6 +112,14 @@ class TestDatabaseClientCredentials:
         redact_terminal_output(line, force=True)
         assert time.perf_counter() - t0 < 2.0
 
+    @pytest.mark.parametrize("line", [
+        "Server=db;User Id=sa;" + "Pass" + "word=${a'" + "Pass" + "word=s3cretpw}",
+        "host=db user=app " + "pass" + "word=${a'" + "pass" + "word=s3cretpw}",
+    ])
+    def test_key_inside_template_shaped_value_masked(self, line):
+        # The quote no longer ends the first value, so it reaches ``}`` and looks like a template.
+        assert "s3cretpw" not in redact_terminal_output(line, force=True)
+
     def test_braced_odbc_password_masked_in_a_file_read(self):
         # ``cat`` output is read as code, where ``{pw}`` is a template; an ODBC brace is a literal.
         out = redact_terminal_output("Server=db;UID=app;PWD={Zq7x;LmP2};Database=core",
