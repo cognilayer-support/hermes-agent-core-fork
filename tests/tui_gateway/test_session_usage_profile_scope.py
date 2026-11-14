@@ -6,6 +6,7 @@ launch profile's (or hit ``UnscopedSecretError``, swallowed fail-open, so the fe
 
 from __future__ import annotations
 
+import json
 import threading
 from pathlib import Path
 
@@ -26,8 +27,10 @@ def two_homes(tmp_path, monkeypatch):
     b.mkdir(parents=True)
     (root / ".env").write_text(f"HERMES_PORTAL_BASE_URL={LAUNCH_PORTAL}\n", encoding="utf-8")
     (b / ".env").write_text(f"HERMES_PORTAL_BASE_URL={B_PORTAL}\n", encoding="utf-8")
-    for home in (root, b):
+    for home, token in ((root, "tok-launch"), (b, "tok-b")):
         (home / "config.yaml").write_text("{}\n", encoding="utf-8")
+        (home / "auth.json").write_text(
+            json.dumps({"version": 1, "providers": {"nous": {"access_token": token}}}), encoding="utf-8")
     monkeypatch.setenv("HERMES_HOME", str(root))
     monkeypatch.setenv("HERMES_PORTAL_BASE_URL", LAUNCH_PORTAL)  # the launch process loaded its own .env
     monkeypatch.setattr(server, "_hermes_home", root)
@@ -49,21 +52,20 @@ def test_session_usage_fetches_credits_in_the_sessions_profile_scope(two_homes, 
     root, b = two_homes
     calls: list = []
 
-    def fake_view(**_kwargs):
-        """Stand-in for the Portal fetch: records the Portal override and home it would have used."""
-        from agent.secret_scope import get_secret
+    def fake_account_info(**_kwargs):
+        """Stand-in for the Portal request, past the logged-in gate and the fetch's worker-thread hop:
+        records the Portal override, home and Nous token the request would have used."""
+        from hermes_cli.auth import get_provider_auth_state
+        from hermes_cli.auth_nous import _nous_portal_env_override
         from hermes_constants import get_hermes_home
-        try:
-            calls.append((get_secret("HERMES_PORTAL_BASE_URL"), Path(get_hermes_home()).resolve()))
-        except Exception as exc:  # UnscopedSecretError on the unscoped path
-            calls.append(type(exc).__name__)
-        return ["credits"], False
+        token = (get_provider_auth_state("nous") or {}).get("access_token")
+        calls.append((_nous_portal_env_override(), Path(get_hermes_home()).resolve(), token))
+        raise RuntimeError("no network in tests")  # fail-open: session.usage still answers
 
-    monkeypatch.setattr("agent.account_usage.nous_credits_view", fake_view)
+    monkeypatch.setattr("hermes_cli.nous_account.get_nous_portal_account_info", fake_account_info)
     monkeypatch.setattr(server, "_sessions", {"sa": _session(None), "sb": _session(str(b))})
 
     for sid in ("sa", "sb"):
-        resp = server._methods["session.usage"]("rid", {"session_id": sid})
-        assert resp["result"]["credits_lines"] == ["credits"], resp
+        assert "result" in server._methods["session.usage"]("rid", {"session_id": sid})
 
-    assert calls == [(LAUNCH_PORTAL, root.resolve()), (B_PORTAL, b.resolve())]
+    assert calls == [(LAUNCH_PORTAL, root.resolve(), "tok-launch"), (B_PORTAL, b.resolve(), "tok-b")]
