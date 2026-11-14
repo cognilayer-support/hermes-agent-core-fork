@@ -60,6 +60,8 @@ def is_redacted_credential_value(value: Any, *, shapes: bool = True) -> bool:
     candidate = _mask_candidate(value)
     if not candidate:
         return False
+    if _is_marker_word(candidate):  # whole-value markers with a space: ``[REDACTED PRIVATE KEY]``
+        return True
     # ``*** sk-pro...WXYZ``: the redactor masks a multi-token header value token by token.
     return all(_is_masked_token(token, shapes) for token in candidate.split())
 

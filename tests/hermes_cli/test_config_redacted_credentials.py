@@ -230,3 +230,27 @@ def test_keyed_writer_refuses_masks(home, key):
     write_config_key(get_config_path(), key, REAL)
     write_config_key(get_config_path(), "display.personality", "***")  # not a credential
     assert yaml.safe_load((home / "config.yaml").read_text())["display"]["personality"] == "***"
+
+
+def _private_key_marker():
+    """What the agent sees for a private key read through read_file: ``[REDACTED PRIVATE KEY]``."""
+    from agent.redact import redact_sensitive_text
+    age = "AGE-SECRET-KEY-1" + "QQPZRY9X8GF2TVDW0S3JN54KHCE6MUA7L" + "QQPZRY9X8GF2TVDW0S3JN54KH"
+    shown = redact_sensitive_text(f"private_key: {age}", force=True, file_read=True).split(": ", 1)[1]
+    assert age not in shown and " " in shown
+    return shown
+
+
+def test_spaced_redaction_marker_is_refused_by_every_writer(home):
+    from hermes_cli.config import get_config_path, read_raw_config, save_config, save_env_value
+    from hermes_cli.config_backend import ConfigValueError, write_config_key
+    marker = _private_key_marker()
+    for key in ("OPENAI_API_KEY", "SUDO_PASSWORD"):
+        with pytest.raises(ValueError, match="redacted display mask"):
+            save_env_value(key, marker)
+    cfg = read_raw_config()
+    cfg["mcp_servers"] = {"s": {"url": "https://x.example", "private_key": marker}}
+    with pytest.raises(ConfigValueError, match="mcp_servers.s.private_key"):
+        save_config(cfg)
+    with pytest.raises(ConfigValueError, match="mcp_servers.s.private_key"):
+        write_config_key(get_config_path(), "mcp_servers.s.private_key", marker)
