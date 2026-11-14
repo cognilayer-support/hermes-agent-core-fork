@@ -441,8 +441,8 @@ def _guarded_write(name: str, skill_dir: Path, target: Path, action: str, label:
         return None
     if original is not None:
         atomic_write_text(target, original, preserve_mode=True)
-    else:
-        target.unlink(missing_ok=True)
+    else:  # a dangling symlink's write created its destination: remove that, keep the link
+        target.resolve().unlink(missing_ok=True)
     return _err(scan_error)
 
 

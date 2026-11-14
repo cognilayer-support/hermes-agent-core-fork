@@ -74,7 +74,10 @@ def _scan_scope(skill_dir: Path, target: Path) -> list[Path]:
     checks still cover the whole dir."""
     real = target.resolve()  # the atomic write lands here when *target* is an in-skill symlink
     key = _same_file_key(target)  # None for a new target: nothing can be hardlinked to it yet
-    return [target] + [f for f in skill_dir.rglob("*") if _aliases(f, target, real, key)]
+    scope = [target] + [f for f in skill_dir.rglob("*") if _aliases(f, target, real, key)]
+    if target.is_symlink() and not real.exists():  # dangling: the write creates *real* under its own name
+        scope.append(skill_dir / real.relative_to(skill_dir.resolve()))
+    return scope
 
 
 def _scan_baseline(skill_dir: Path, target: Path) -> tuple[Optional[list[Path]], Optional[Counter], Optional[str]]:

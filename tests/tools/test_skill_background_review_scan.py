@@ -324,3 +324,20 @@ def test_symlink_loop_in_skill_returns_a_clean_scan_error(skills, monkeypatch):
                             "file_content": "Do the other thing.\n"})
     assert result["success"] is False, result
     assert "Security scan could not complete" in result["error"] and ref.read_bytes() == before
+
+
+def test_background_write_through_a_dangling_symlink_scans_the_file_it_creates(skills):
+    """references/workflow.md -> ../scripts/run.sh with no run.sh yet: the write creates run.sh, which
+    gets the .sh rules, and a blocked write removes run.sh and keeps the link as it was."""
+    with _origin(BACKGROUND_REVIEW):
+        _seed(skills)
+        ref = skills / "bg-skill" / "references" / "workflow.md"
+        dest = skills / "bg-skill" / "scripts" / "run.sh"
+        ref.unlink()
+        dest.parent.mkdir()
+        ref.symlink_to("../scripts/run.sh")
+        result = _dispatch({"action": "write_file", "name": "bg-skill", "file_path": "references/workflow.md",
+                            "file_content": HIDDEN})
+    assert result["success"] is False, result
+    assert "scripts/run.sh" in result["error"]
+    assert ref.is_symlink() and not dest.exists()
