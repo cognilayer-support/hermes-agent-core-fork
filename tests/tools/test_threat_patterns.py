@@ -269,7 +269,7 @@ class TestInvisibleUnicode:
     def test_flag_straddling_scan_limit_not_flagged(self, before_cut):
         """A real flag cut by MAX_SCAN_CHARS keeps its exemption; tags before the cut stay checked."""
         wales = "\U0001F3F4" + "".join(chr(0xE0000 + ord(c)) for c in "gbwls") + "\U000E007F"
-        text = "a" * (MAX_SCAN_CHARS - before_cut) + wales + " tail"
+        text = "a" * (MAX_SCAN_CHARS - before_cut) + wales + "\u200b tail"  # U+200B is past the cut
         assert scan_for_threats(text, scope="strict") == []
         smuggled = "a" * (MAX_SCAN_CHARS - before_cut - 1) + chr(0xE0041) + wales
         assert "invisible_unicode_U+E0041" in scan_for_threats(smuggled, scope="strict")
