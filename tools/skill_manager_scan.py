@@ -48,7 +48,7 @@ def _finding_keys(skill_dir: Path, findings) -> list[tuple[str, str, str, str]]:
 def _same_file_key(path: Path) -> Optional[tuple[int, int]]:
     try:
         st = path.stat()
-    except (OSError, RuntimeError):  # missing, dangling or looping: cannot share the target's inode
+    except OSError:  # missing, dangling or looping (ELOOP): cannot share the target's inode
         return None
     return st.st_dev, st.st_ino
 
@@ -59,7 +59,7 @@ def _aliases(path: Path, target: Path, real: Path, key: Optional[tuple[int, int]
     try:
         if path.resolve() == real:
             return True
-    except (OSError, RuntimeError):  # resolve() raises RuntimeError on a loop on 3.11/3.12
+    except OSError:  # a loop's RuntimeError (3.11/3.12) reaches _scan_baseline's try and fails closed
         return False
     return key is not None and _same_file_key(path) == key
 
