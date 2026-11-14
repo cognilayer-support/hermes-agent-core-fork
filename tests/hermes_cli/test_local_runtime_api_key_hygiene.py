@@ -167,3 +167,22 @@ def test_spawn_uses_argv_when_the_key_file_is_missing(tmp_path, monkeypatch):
     finally:
         sup.stop()
 
+
+def test_failed_engine_probe_does_not_pin_the_argv_key(tmp_path, monkeypatch):
+    """A transient --help failure must not keep the key in argv once the probe works again."""
+    sup, commands = _make_supervisor(tmp_path, monkeypatch, "--api-key-file FNAME")
+    working = supervisor.subprocess.run
+
+    def fail(argv, **kwargs):
+        raise subprocess.TimeoutExpired(argv, 15)
+
+    try:
+        monkeypatch.setattr(supervisor.subprocess, "run", fail)
+        with pytest.raises(subprocess.TimeoutExpired):
+            sup._spawn()
+        monkeypatch.setattr(supervisor.subprocess, "run", working)
+        sup._spawn()
+        assert "--api-key-file" in commands[-1]
+        assert sup.api_key not in commands[-1]
+    finally:
+        sup.stop()

@@ -124,9 +124,11 @@ def _direct_io_args(executable: Path) -> tuple[str, ...]:
     return ("-dio",) if "--direct-io" in help_text else ()
 
 
-@lru_cache(maxsize=16)
 def _api_key_file_supported(executable: Path) -> bool:
-    """Older pinned builds predate --api-key-file; a failed probe falls back to argv."""
+    """Older pinned builds predate --api-key-file; a failed probe falls back to argv.
+
+    Deliberately uncached: ``_engine_help`` caches only a successful probe, so a transient
+    ``--help`` failure is retried on the next spawn instead of pinning the key in argv."""
     try:
         return "--api-key-file" in _engine_help(executable)
     except (OSError, subprocess.SubprocessError):
