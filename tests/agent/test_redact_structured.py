@@ -213,3 +213,15 @@ def test_secret_whose_first_mask_is_masked_again_keeps_siblings(secret_text):
     assert out["cmd"] != secret_text
     assert out["argv"][0] != secret_text
     assert _settled(out)
+
+
+def test_credential_in_mapping_key_does_not_erase_safe_siblings():
+    token = "ghp_" + "A" * 40
+    payload = {"counts": {token: "one call"}, "summary": "keep"}
+
+    out = redact_structured(payload)
+
+    assert out["summary"] == "keep"
+    assert list(out["counts"].values()) == ["one call"]
+    assert token not in json.dumps(out)
+    assert _settled(out)

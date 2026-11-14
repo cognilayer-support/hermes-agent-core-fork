@@ -36,10 +36,14 @@ def redact_structured(payload: Any) -> Any:
 
 def _walk(value: Any, key: Any, *, hard: bool) -> Any:
     if isinstance(value, dict):
-        return {
-            item_key: _walk(item, item_key, hard=hard)
-            for item_key, item in value.items()
-        }
+        # Dictionary keys can themselves contain a credential (e.g. a token-indexed
+        # tool argument). Keeping a raw key makes _settled fail even after every
+        # value is masked, discarding otherwise safe siblings.
+        result = {}
+        for item_key, item in value.items():
+            safe_key = _redact_leaf(item_key, None) if isinstance(item_key, str) else item_key
+            result[safe_key] = _walk(item, safe_key, hard=hard)
+        return result
     if isinstance(value, list):
         return [_walk(item, None, hard=hard) for item in value]
     if isinstance(value, tuple):
