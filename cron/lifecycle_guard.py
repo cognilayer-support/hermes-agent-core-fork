@@ -1153,6 +1153,20 @@ def _read_script_for_scanning(script_path: str) -> tuple[str, Optional[str]]:
 
 # --- recursive walk ---------------------------------------------------------------------------
 
+def _scan_written_bodies(
+    bodies: list[str], recurse: Callable[..., bool], cwd: Optional[str], executed: bool,
+) -> bool:
+    """Scan the heredoc bodies written to one run path. Each body is one possible file version (an
+    overwrite replaces the last); their concatenation is the file ``>>`` appends build. Joined
+    overwrites can form a masked ``cat <<'DOC'`` around a command the file really runs, so the join
+    is never scanned alone. A body is a substring of charged text (charge_text frees its first
+    scan only); the join is new text, so it is charged like any other."""
+    bodies = list(dict.fromkeys(filter(None, bodies)))
+    if any(recurse(body, cwd, executed, charge=False) for body in bodies):
+        return True
+    return len(bodies) > 1 and recurse("".join(bodies), cwd, executed)
+
+
 def _contains_unsafe_gateway_action(
     command: str, *, cwd: Optional[str], depth: int, visited: set[Path], budget: _LifecycleScanBudget,
     read_remote_script: Optional[_ReadRemoteScriptFn] = None, executed: bool = True,
@@ -1202,15 +1216,7 @@ def _contains_unsafe_gateway_action(
     # oversized/binary, budget) stay restricted to the executed view — a mere data mention must not
     # trip them. Executed candidates come first so a mention never starves a real script's budget.
     for script_path, candidate_executed in _walk_candidates(command, walk_command, cwd, executed):
-        # Each body is one possible file version (an overwrite replaces the last), and their
-        # concatenation is the file `>>` appends build. Joined overwrites can form a masked
-        # `cat <<'DOC'` heredoc around a command the file really runs, so never scan the join alone.
-        # A body is a substring of charged text (charge_text frees its first scan only); the join
-        # is new text, so it is charged like any other.
-        bodies = list(dict.fromkeys(filter(None, written.pop(_resolve_lenient(script_path), []))))
-        if any(recurse(body, cwd, candidate_executed, charge=False) for body in bodies):
-            return True
-        if len(bodies) > 1 and recurse("".join(bodies), cwd, candidate_executed):
+        if _scan_written_bodies(written.pop(_resolve_lenient(script_path), []), recurse, cwd, candidate_executed):
             return True
         # Do not touch a FileProvider path even to discover whether the file is hydrated.
         if _on_cloud_path(script_path):
