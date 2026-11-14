@@ -293,7 +293,9 @@ async def scan_skill_hub(identifier: str = "", profile: Optional[str] = None):
 
         from hermes_cli.skills_hub import _scan_source_for_install
 
-        with _profile_scope(profile):
+        # Config scope, not _profile_scope: quarantine + scan resolve through get_hermes_home(),
+        # and holding _SKILLS_PROFILE_LOCK across the fetch would stall every dashboard request.
+        with _config_profile_scope(profile):
             meta, bundle, matched_source = _resolve_hub_skill(ident, profile)
             if not bundle:
                 return None
