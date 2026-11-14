@@ -62,6 +62,9 @@ BRANCH_FORCE_DELETE_LONG = "git branch force delete (long flags)"
         ('git -c user.name="John \\"Big John\\" Doe" reset --hard', RESET_HARD),
         ("git -c user.name=O\\'Brien push --force", FORCE_PUSH),
         ("git -c user.name=a\\`b reset --hard", RESET_HARD),
+        # A backslash is literal inside single quotes, and a single quote is literal inside double quotes.
+        ("git -C 'a\\' -c user.name=O\\'Brien push --force", FORCE_PUSH),
+        ('git -c user.name="O\'Brien \\"Big Jr\\" O\'Neil" reset --hard', RESET_HARD),
         # A command substitution is one word even unquoted.
         ("git -C $(git rev-parse --show-toplevel) push --force", FORCE_PUSH),
         ("git -C `git rev-parse --show-toplevel` reset --hard", RESET_HARD),
