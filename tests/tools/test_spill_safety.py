@@ -48,6 +48,9 @@ def test_keep_group_tightens_only_world_bits(tmp_path):
     """A shared-group home (HERMES_HOME_MODE=2770) keeps group access on an existing dir."""
     d = tmp_path / "spills"
     d.mkdir()
+    # macOS gives a new dir its parent's group and drops setgid on chmod when the
+    # caller isn't in that group; own the group first, as a shared-group home does.
+    os.chown(d, -1, os.getegid())
     os.chmod(d, 0o2777)
     ensure_spill_dir(d, private=True, keep_group=True)
     assert stat.S_IMODE(os.lstat(d).st_mode) & 0o7777 == 0o2770

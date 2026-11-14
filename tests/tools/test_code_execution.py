@@ -1004,6 +1004,9 @@ class TestHeadTailTruncation(unittest.TestCase):
         from tools.code_execution_tool import _spill_full_stdout
         cache_dir = get_hermes_dir("cache/exec", "exec_spill")
         cache_dir.mkdir(parents=True, exist_ok=True)
+        # macOS gives a new dir its parent's group and drops setgid on chmod when the
+        # caller isn't in that group; own the group first, as a shared-group home does.
+        os.chown(cache_dir, -1, os.getegid())
         os.chmod(cache_dir, 0o2777)
         spill = _spill_full_stdout("group-shared spill\n")
         self.assertTrue(spill)
